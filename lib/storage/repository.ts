@@ -1,11 +1,13 @@
 import type { SQLiteDatabase } from "expo-sqlite";
-import { DEFAULT_PROVIDER_CONFIG } from "@/config/defaults";
+import { DEFAULT_PROVIDER_CONFIG, DEFAULT_USER_PROFILE } from "@/config/defaults";
 import type {
   ChatMessage,
   DocumentChunk,
   DocumentRecord,
   DocumentStatus,
+  FolderRecord,
   ProviderConfig,
+  UserProfile,
 } from "@/lib/types";
 
 type DocumentRow = {
@@ -14,12 +16,21 @@ type DocumentRow = {
   ext: string;
   mime: string;
   status: DocumentStatus;
+  folder_id: string | null;
   local_uri: string | null;
   original_text: string | null;
   extracted_text: string | null;
   summary: string | null;
   visual_summary: string | null;
   error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type FolderRow = {
+  id: string;
+  name: string;
+  document_count: number;
   created_at: string;
   updated_at: string;
 };
@@ -61,9 +72,36 @@ export async function saveProviderConfig(db: SQLiteDatabase, config: ProviderCon
   );
 }
 
+export async function getUserProfile(db: SQLiteDatabase) {
+  const row = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM settings WHERE key = ?",
+    ["userProfile"],
+  );
+  if (!row?.value) {
+    return DEFAULT_USER_PROFILE;
+  }
+  return { ...DEFAULT_USER_PROFILE, ...JSON.parse(row.value) } as UserProfile;
+}
+
+export async function saveUserProfile(db: SQLiteDatabase, profile: UserProfile) {
+  await db.runAsync(
+    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+    "userProfile",
+    JSON.stringify(profile),
+  );
+}
+
 export async function getDocuments(db: SQLiteDatabase) {
   const rows = await db.getAllAsync<DocumentRow>(
     "SELECT * FROM documents ORDER BY updated_at DESC",
+  );
+  return rows.map(mapDocumentRow);
+}
+
+export async function getDocumentsByFolder(db: SQLiteDatabase, folderId: string) {
+  const rows = await db.getAllAsync<DocumentRow>(
+    "SELECT * FROM documents WHERE folder_id = ? ORDER BY updated_at DESC",
+    [folderId],
   );
   return rows.map(mapDocumentRow);
 }
@@ -79,14 +117,15 @@ export async function getDocument(db: SQLiteDatabase, id: string) {
 export async function upsertDocument(db: SQLiteDatabase, document: DocumentRecord) {
   await db.runAsync(
     `INSERT OR REPLACE INTO documents (
-      id, title, ext, mime, status, local_uri, original_text, extracted_text,
+      id, title, ext, mime, status, folder_id, local_uri, original_text, extracted_text,
       summary, visual_summary, error, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     document.id,
     document.title,
     document.ext,
     document.mime,
     document.status,
+    document.folderId ?? null,
     document.localUri ?? null,
     document.originalText ?? null,
     document.extractedText ?? null,
@@ -105,6 +144,7 @@ export async function patchDocument(
     Pick<
       DocumentRecord,
       | "status"
+      | "folderId"
       | "localUri"
       | "originalText"
       | "extractedText"
@@ -126,6 +166,92 @@ export async function deleteDocument(db: SQLiteDatabase, id: string) {
   await db.runAsync("DELETE FROM chat_messages WHERE document_id = ?", id);
   await db.runAsync("DELETE FROM document_chunks WHERE document_id = ?", id);
   await db.runAsync("DELETE FROM documents WHERE id = ?", id);
+}
+
+export async function getFolders(db: SQLiteDatabase) {
+  const rows = await db.getAllAsync<FolderRow>(
+    `SELECT
+      folders.id,
+      folders.name,
+      folders.created_at,
+      folders.updated_at,
+      COUNT(documents.id) AS document_count
+     FROM folders
+     LEFT JOIN documents ON documents.folder_id = folders.id
+     GROUP BY folders.id
+     ORDER BY folders.updated_at DESC, folders.name ASC`,
+  );
+  return rows.map(mapFolderRow);
+}
+
+export async function getFolder(db: SQLiteDatabase, id: string) {
+  const row = await db.getFirstAsync<FolderRow>(
+    `SELECT
+      folders.id,
+      folders.name,
+      folders.created_at,
+      folders.updated_at,
+      COUNT(documents.id) AS document_count
+     FROM folders
+     LEFT JOIN documents ON documents.folder_id = folders.id
+     WHERE folders.id = ?
+     GROUP BY folders.id`,
+    [id],
+  );
+  return row ? mapFolderRow(row) : null;
+}
+
+export async function createFolder(db: SQLiteDatabase, folder: Omit<FolderRecord, "documentCount">) {
+  await db.runAsync(
+    `INSERT INTO folders (id, name, created_at, updated_at)
+     VALUES (?, ?, ?, ?)`,
+    folder.id,
+    folder.name,
+    folder.createdAt,
+    folder.updatedAt,
+  );
+}
+
+export async function renameFolder(
+  db: SQLiteDatabase,
+  id: string,
+  name: string,
+  updatedAt: string,
+) {
+  await db.runAsync(
+    "UPDATE folders SET name = ?, updated_at = ? WHERE id = ?",
+    name,
+    updatedAt,
+    id,
+  );
+}
+
+export async function deleteFolder(db: SQLiteDatabase, id: string) {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync("UPDATE documents SET folder_id = NULL WHERE folder_id = ?", id);
+    await db.runAsync("DELETE FROM folders WHERE id = ?", id);
+  });
+}
+
+export async function moveDocumentToFolder(
+  db: SQLiteDatabase,
+  documentId: string,
+  folderId: string | null,
+  updatedAt: string,
+) {
+  await db.runAsync(
+    "UPDATE documents SET folder_id = ?, updated_at = ? WHERE id = ?",
+    folderId,
+    updatedAt,
+    documentId,
+  );
+  if (folderId) {
+    await db.runAsync(
+      "UPDATE folders SET updated_at = ? WHERE id = ?",
+      updatedAt,
+      folderId,
+    );
+  }
 }
 
 export async function replaceChunks(
@@ -195,12 +321,23 @@ function mapDocumentRow(row: DocumentRow): DocumentRecord {
     ext: row.ext,
     mime: row.mime,
     status: row.status,
+    folderId: row.folder_id,
     localUri: row.local_uri,
     originalText: row.original_text,
     extractedText: row.extracted_text,
     summary: row.summary,
     visualSummary: row.visual_summary,
     error: row.error,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapFolderRow(row: FolderRow): FolderRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    documentCount: row.document_count,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

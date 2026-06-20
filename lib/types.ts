@@ -1,5 +1,6 @@
 export type DocumentStatus =
   | "queued"
+  | "local"
   | "uploading"
   | "extracting"
   | "summarizing"
@@ -17,18 +18,32 @@ export type ProviderRuntimeConfig = ProviderConfig & {
   apiKey: string;
 };
 
+export type UserProfile = {
+  displayName: string;
+  avatarDataUri?: string | null;
+};
+
 export type DocumentRecord = {
   id: string;
   title: string;
   ext: string;
   mime: string;
   status: DocumentStatus;
+  folderId?: string | null;
   localUri?: string | null;
   originalText?: string | null;
   extractedText?: string | null;
   summary?: string | null;
   visualSummary?: string | null;
   error?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FolderRecord = {
+  id: string;
+  name: string;
+  documentCount: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -51,6 +66,15 @@ export type ChatMessage = {
   content: string;
   sourceChunkIds?: string[] | null;
   createdAt: string;
+};
+
+export type ActiveChat = {
+  documentId: string;
+  question: string;
+  partial: string;
+  status: "pending" | "failed";
+  error?: string | null;
+  startedAt: string;
 };
 
 export type ImportAsset = {

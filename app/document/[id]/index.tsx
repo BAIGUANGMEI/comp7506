@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { ChevronDown, ChevronUp, Trash2 } from "lucide-react-native";
+import { ChevronDown, ChevronUp, Folder, Trash2 } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { MarkdownContent } from "@/components/MarkdownContent";
@@ -21,7 +21,7 @@ import { formatShortDate } from "@/lib/utils/dates";
 
 export default function DocumentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { getDocumentById, getDocumentChunks, deleteDocument } = useApp();
+  const { folders, getDocumentById, getDocumentChunks, deleteDocument, moveDocumentToFolder } = useApp();
   const [document, setDocument] = useState<DocumentRecord | null>(null);
   const [chunks, setChunks] = useState<DocumentChunk[]>([]);
 
@@ -47,13 +47,30 @@ export default function DocumentDetailScreen() {
       router.replace("/");
     };
     if (Platform.OS === "web") {
-      await run();
+      if (window.confirm("Delete this document and its local summary, chunks, and chat history?")) {
+        await run();
+      }
       return;
     }
     Alert.alert("Delete document?", "This removes the local summary, chunks, and chat history.", [
       { text: "Cancel", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: run },
     ]);
+  }
+
+  async function moveToFolder() {
+    if (!document) {
+      return;
+    }
+    const selectedFolderId = await askForFolder({
+      currentFolderId: document.folderId ?? null,
+      folders,
+    });
+    if (selectedFolderId === undefined) {
+      return;
+    }
+    await moveDocumentToFolder(document.id, selectedFolderId);
+    await load();
   }
 
   if (!document) {
@@ -98,8 +115,25 @@ export default function DocumentDetailScreen() {
       <Card>
         <Property label="Format" value={document.ext.toUpperCase()} />
         <Property label="Status" value={document.status} />
+        <Property label="Folder" value={folderName(document.folderId, folders)} />
         <Property label="Created" value={formatShortDate(document.createdAt)} />
         <Property label="Updated" value={formatShortDate(document.updatedAt)} last />
+      </Card>
+
+      <SectionTitle>Folder</SectionTitle>
+      <Card style={styles.folderCard}>
+        <View style={styles.folderSummary}>
+          <View style={styles.folderIcon}>
+            <Folder size={21} color={colors.folder} />
+          </View>
+          <View style={styles.folderCopy}>
+            <Text style={styles.folderTitle}>{folderName(document.folderId, folders)}</Text>
+            <Text style={styles.folderBody}>Organize this document in your library.</Text>
+          </View>
+        </View>
+        <Button variant="secondary" onPress={moveToFolder}>
+          Move to Folder
+        </Button>
       </Card>
 
       <SectionTitle>Overview</SectionTitle>
@@ -142,6 +176,49 @@ export default function DocumentDetailScreen() {
       </View>
     </Screen>
   );
+}
+
+function folderName(folderId: string | null | undefined, folders: Array<{ id: string; name: string }>) {
+  if (!folderId) {
+    return "No Folder";
+  }
+  return folders.find((folder) => folder.id === folderId)?.name ?? "Unknown Folder";
+}
+
+function askForFolder({
+  currentFolderId,
+  folders,
+}: {
+  currentFolderId: string | null;
+  folders: Array<{ id: string; name: string }>;
+}) {
+  if (Platform.OS === "web") {
+    const options = ["0. No Folder", ...folders.map((folder, index) => `${index + 1}. ${folder.name}`)];
+    const answer = window.prompt(`Move to folder:\n${options.join("\n")}`, currentFolderId ? "" : "0");
+    if (answer === null) {
+      return Promise.resolve<undefined | string | null>(undefined);
+    }
+    const index = Number(answer.trim());
+    if (index === 0) {
+      return Promise.resolve(null);
+    }
+    return Promise.resolve(folders[index - 1]?.id);
+  }
+
+  return new Promise<undefined | string | null>((resolve) => {
+    Alert.alert(
+      "Move to folder",
+      "Choose where this document should live.",
+      [
+        { text: "Cancel", style: "cancel", onPress: () => resolve(undefined) },
+        { text: "No Folder", onPress: () => resolve(null) },
+        ...folders.map((folder) => ({
+          text: folder.name,
+          onPress: () => resolve(folder.id),
+        })),
+      ],
+    );
+  });
 }
 
 function Property({
@@ -217,9 +294,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   title: {
-    fontSize: 27,
-    lineHeight: 34,
-    fontWeight: "800",
+    fontSize: 29,
+    lineHeight: 36,
+    fontWeight: "500",
     color: colors.text,
   },
   meta: {
@@ -233,6 +310,39 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: radius.md,
     lineHeight: 20,
+  },
+  folderCard: {
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  folderSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  folderIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: radius.md,
+    backgroundColor: colors.folderSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  folderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  folderTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  folderBody: {
+    color: colors.textMuted,
+    lineHeight: 20,
+    marginTop: 2,
   },
   summaryCard: {
     padding: spacing.lg,
