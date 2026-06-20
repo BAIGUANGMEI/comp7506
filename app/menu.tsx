@@ -23,10 +23,10 @@ export default function MenuScreen() {
       </View>
 
       <View style={styles.menuList}>
-        <MenuItem icon={<FileText size={22} color={colors.primaryDark} />} label="Documents" onPress={() => router.push("/")} active />
-        <MenuItem icon={<Bot size={22} color={colors.primaryDark} />} label="AI Conversations" onPress={() => router.push("/search")} />
-        <MenuItem icon={<Plus size={22} color={colors.primaryDark} />} label="Import Document" onPress={() => router.push("/import")} />
-        <MenuItem icon={<Settings size={22} color={colors.primaryDark} />} label="Settings" onPress={() => router.push("/settings")} />
+        <MenuItem icon={<FileText size={22} color={colors.primaryDark} />} label="Documents" onPress={() => router.replace("/")} active />
+        <MenuItem icon={<Bot size={22} color={colors.primaryDark} />} label="AI Conversations" onPress={() => router.replace("/search")} />
+        <MenuItem icon={<Plus size={22} color={colors.primaryDark} />} label="Import Document" onPress={() => router.replace("/import")} />
+        <MenuItem icon={<Settings size={22} color={colors.primaryDark} />} label="Settings" onPress={() => router.replace("/settings")} />
       </View>
 
       <View style={styles.menuList}>
@@ -50,7 +50,7 @@ export default function MenuScreen() {
       </View>
 
       <View style={styles.fabWrap}>
-        <IconButton label="Import document" onPress={() => router.push("/import")} style={styles.fab}>
+        <IconButton label="Import document" onPress={() => router.replace("/import")} style={styles.fab}>
           <Plus size={28} color="#FFFFFF" />
         </IconButton>
       </View>

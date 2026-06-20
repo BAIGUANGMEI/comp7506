@@ -10,6 +10,7 @@ import {
 import React, { useEffect, useMemo, useRef } from "react";
 import {
   Animated,
+  Image,
   Pressable,
   SafeAreaView,
   StyleSheet,
@@ -24,7 +25,7 @@ import { useApp } from "@/lib/AppProvider";
 export function SideDrawer() {
   const pathname = usePathname();
   const { width } = useWindowDimensions();
-  const { drawerOpen, closeDrawer, documents } = useApp();
+  const { drawerOpen, closeDrawer, documents, profile } = useApp();
   const progress = useRef(new Animated.Value(0)).current;
   const readyCount = documents.filter((document) => document.status === "ready").length;
   const drawerWidth = Math.min(360, Math.max(320, width * 0.9));
@@ -59,11 +60,7 @@ export function SideDrawer() {
     if (pathname === path) {
       return;
     }
-    if (path === "/") {
-      router.replace(path);
-      return;
-    }
-    router.push(path);
+    router.replace(path);
   }
 
   return (
@@ -84,9 +81,17 @@ export function SideDrawer() {
         <SafeAreaView style={styles.safeArea}>
           <View style={styles.drawerContent}>
             <View style={styles.profile}>
-              <View style={styles.avatar} />
+              <View style={styles.avatar}>
+                {profile.avatarDataUri ? (
+                  <Image source={{ uri: profile.avatarDataUri }} style={styles.avatarImage} />
+                ) : (
+                  <Text style={styles.avatarInitial}>{profile.displayName.trim()[0]?.toUpperCase() || "U"}</Text>
+                )}
+              </View>
               <View style={styles.profileCopy}>
-                <Text style={styles.profileName}>Hello, User</Text>
+                <Text style={styles.profileName} numberOfLines={1}>
+                  Hello, {profile.displayName}
+                </Text>
                 <Text style={styles.profilePlan}>Personal</Text>
               </View>
             </View>
@@ -194,7 +199,7 @@ const styles = StyleSheet.create({
   drawerContent: {
     flex: 1,
     paddingHorizontal: layout.screenMargin + spacing.lg,
-    paddingTop: 72,
+    paddingTop: 52,
     paddingBottom: 26,
   },
   profile: {
@@ -207,6 +212,18 @@ const styles = StyleSheet.create({
     height: 58,
     borderRadius: radius.pill,
     backgroundColor: "#BDB6AD",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+  },
+  avatarInitial: {
+    color: "#FFFFFF",
+    fontSize: 22,
+    fontWeight: "600",
   },
   profileCopy: {
     flex: 1,
@@ -215,7 +232,7 @@ const styles = StyleSheet.create({
   profileName: {
     color: colors.text,
     fontSize: 22,
-    fontWeight: "800",
+    fontWeight: "500",
   },
   profilePlan: {
     color: colors.textMuted,
@@ -223,7 +240,7 @@ const styles = StyleSheet.create({
     marginTop: 7,
   },
   primaryMenu: {
-    marginTop: 46,
+    marginTop: 34,
     gap: spacing.sm,
   },
   secondaryMenu: {

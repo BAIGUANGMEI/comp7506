@@ -1,4 +1,4 @@
-import type { ProviderConfig } from "@/lib/types";
+import type { ProviderConfig, UserProfile } from "@/lib/types";
 
 export const API_KEY_REF = "document-ai-provider-api-key";
 
@@ -7,6 +7,11 @@ export const DEFAULT_PROVIDER_CONFIG: ProviderConfig = {
   model: "kimi-k2.6",
   apiKeyRef: API_KEY_REF,
   deleteRemoteFilesAfterExtraction: true,
+};
+
+export const DEFAULT_USER_PROFILE: UserProfile = {
+  displayName: "User",
+  avatarDataUri: null,
 };
 
 export const MAX_IMPORT_BYTES = 100 * 1024 * 1024;

@@ -1,8 +1,16 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { ExternalLink, MessageCircle, Search } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Linking,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { MarkdownContent } from "@/components/MarkdownContent";
+import { NativePdfPreview } from "@/components/NativePdfPreview";
 import { Button, EmptyState, IconButton, Screen, TopBar } from "@/components/ui";
 import { colors, radius, spacing } from "@/config/theme";
 import { useApp } from "@/lib/AppProvider";
@@ -126,6 +134,8 @@ function PdfReader({
   document: DocumentRecord;
   fallbackText: string;
 }) {
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
   if (Platform.OS === "web" && document.localUri) {
     return (
       <View style={styles.readerBlock}>
@@ -146,10 +156,40 @@ function PdfReader({
     );
   }
 
+  if (document.localUri) {
+    if (!previewError) {
+      return (
+        <View style={styles.readerBlock}>
+          <NativePdfPreview uri={document.localUri} onUnavailable={setPreviewError} />
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.readerBlock}>
+        <PdfPreviewUnavailable
+          uri={document.localUri}
+          reason={previewError || "The embedded PDF preview could not load this file."}
+        />
+        <TextReader text={fallbackText} compact />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.readerBlock}>
       <OriginalUnavailable document={document} />
       <TextReader text={fallbackText} compact />
+    </View>
+  );
+}
+
+function PdfPreviewUnavailable({ uri, reason }: { uri: string; reason: string }) {
+  return (
+    <View style={styles.unavailable}>
+      <Text style={styles.unavailableTitle}>PDF preview is unavailable</Text>
+      <Text style={styles.unavailableText}>{reason}</Text>
+      <OpenOriginalButton uri={uri} />
     </View>
   );
 }
@@ -292,9 +332,9 @@ const styles = StyleSheet.create({
   },
   h1: {
     color: colors.text,
-    fontSize: 28,
-    lineHeight: 38,
-    fontWeight: "800",
+    fontSize: 30,
+    lineHeight: 39,
+    fontWeight: "500",
   },
   meta: {
     color: colors.textMuted,
@@ -355,9 +395,9 @@ const styles = StyleSheet.create({
   },
   wordTitle: {
     color: colors.text,
-    fontSize: 22,
-    lineHeight: 30,
-    fontWeight: "800",
+    fontSize: 24,
+    lineHeight: 32,
+    fontWeight: "500",
   },
   wordMeta: {
     color: colors.textMuted,

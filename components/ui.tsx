@@ -12,6 +12,7 @@ import {
   View,
   ViewStyle,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, Menu, Search, Settings } from "lucide-react-native";
 import { router } from "expo-router";
 import { colors, layout, radius, spacing } from "@/config/theme";
@@ -25,13 +26,25 @@ type ScreenProps = PropsWithChildren<{
 }>;
 
 export function Screen({ children, scroll = true, padded = true, style }: ScreenProps) {
+  const childArray = React.Children.toArray(children);
+  const fixedChildren = childArray.filter(isTopBarElement);
+  const contentChildren = childArray.filter((child) => !isTopBarElement(child));
   const content = (
-    <View style={[styles.screenInner, padded && styles.screenPadding, style]}>{children}</View>
+    <View style={[styles.screenInner, padded && styles.screenPadding, style]}>
+      {contentChildren}
+    </View>
   );
+
   return (
     <View style={styles.screen}>
+      {fixedChildren.length > 0 ? (
+        <View style={[styles.fixedHeaderInner, padded && styles.screenHeaderPadding]}>
+          {fixedChildren}
+        </View>
+      ) : null}
       {scroll ? (
         <ScrollView
+          style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
@@ -44,6 +57,10 @@ export function Screen({ children, scroll = true, padded = true, style }: Screen
   );
 }
 
+function isTopBarElement(child: React.ReactNode) {
+  return React.isValidElement(child) && Boolean((child.type as { isAppTopBar?: boolean }).isAppTopBar);
+}
+
 type TopBarProps = {
   title?: string;
   back?: boolean;
@@ -53,11 +70,24 @@ type TopBarProps = {
   right?: React.ReactNode;
 };
 
-export function TopBar({ title, back, menu, search, settings, right }: TopBarProps) {
+type TopBarComponent = ((props: TopBarProps) => React.ReactElement) & {
+  isAppTopBar?: boolean;
+};
+
+export const TopBar: TopBarComponent = function TopBar({
+  title,
+  back,
+  menu,
+  search,
+  settings,
+  right,
+}: TopBarProps) {
   const { openDrawer } = useApp();
+  const insets = useSafeAreaInsets();
+  const topPadding = Math.max(insets.top, 32);
 
   return (
-    <View style={styles.topBar}>
+    <View style={[styles.topBar, { height: topPadding + 50, paddingTop: topPadding }]}>
       <View style={styles.topBarSide}>
         {back ? (
           <IconButton label="Back" onPress={goBackOrHome}>
@@ -79,7 +109,10 @@ export function TopBar({ title, back, menu, search, settings, right }: TopBarPro
           </IconButton>
         ) : null}
         {settings ? (
-          <IconButton label="Settings" onPress={() => router.push("/settings")}>
+          <IconButton
+            label="Settings"
+            onPress={() => router.push({ pathname: "/settings", params: { entry: "stack" } })}
+          >
             <Settings size={21} color={colors.text} />
           </IconButton>
         ) : null}
@@ -87,7 +120,9 @@ export function TopBar({ title, back, menu, search, settings, right }: TopBarPro
       </View>
     </View>
   );
-}
+};
+
+TopBar.isAppTopBar = true;
 
 export function goBackOrHome() {
   if (router.canGoBack()) {
@@ -122,6 +157,7 @@ type ButtonProps = PropsWithChildren<{
   variant?: "primary" | "secondary" | "ghost" | "danger";
   disabled?: boolean;
   loading?: boolean;
+  icon?: React.ReactNode;
   style?: StyleProp<ViewStyle>;
 }>;
 
@@ -131,6 +167,7 @@ export function Button({
   variant = "primary",
   disabled,
   loading,
+  icon,
   style,
 }: ButtonProps) {
   return (
@@ -147,6 +184,7 @@ export function Button({
       ]}
     >
       {loading ? <ActivityIndicator color={variant === "primary" ? "#FFFFFF" : colors.primary} /> : null}
+      {!loading && icon ? <View style={styles.buttonIcon}>{icon}</View> : null}
       <Text style={[styles.buttonText, styles[`buttonText_${variant}`] as StyleProp<TextStyle>]}>
         {children}
       </Text>
@@ -205,7 +243,7 @@ export function StatusPill({ status }: { status: DocumentStatus }) {
       ? colors.success
       : status === "failed"
         ? colors.danger
-        : status === "queued"
+        : status === "queued" || status === "local"
           ? colors.textMuted
           : colors.warning;
   return (
@@ -244,6 +282,8 @@ export function DocumentRow({
 
 export function statusLabel(status: DocumentStatus) {
   switch (status) {
+    case "local":
+      return "Local";
     case "queued":
       return "Queued";
     case "uploading":
@@ -264,8 +304,21 @@ export const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  scrollView: {
+    flex: 1,
+  },
   scrollContent: {
     flexGrow: 1,
+  },
+  fixedHeaderInner: {
+    width: "100%",
+    maxWidth: Platform.OS === "web" ? layout.screenMaxWidth : undefined,
+    alignSelf: "center",
+    zIndex: 10,
+    backgroundColor: colors.background,
+  },
+  screenHeaderPadding: {
+    paddingHorizontal: layout.screenMargin,
   },
   screenInner: {
     width: "100%",
@@ -278,11 +331,9 @@ export const styles = StyleSheet.create({
     paddingBottom: 34,
   },
   topBar: {
-    height: 102,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingTop: 36,
   },
   topBarSide: {
     width: 92,
@@ -296,8 +347,8 @@ export const styles = StyleSheet.create({
   topBarTitle: {
     flex: 1,
     textAlign: "center",
-    fontSize: 18,
-    fontWeight: "700",
+    fontSize: 22,
+    fontWeight: "500",
     color: colors.text,
   },
   iconButton: {
@@ -348,6 +399,10 @@ export const styles = StyleSheet.create({
   },
   buttonText_danger: {
     color: colors.danger,
+  },
+  buttonIcon: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   disabled: {
     opacity: 0.5,

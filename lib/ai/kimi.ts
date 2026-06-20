@@ -1,6 +1,6 @@
 import { Platform } from "react-native";
 import { buildContextBlock } from "@/lib/documents/chunking";
-import { extractDeltaFromChatChunk, parseSseChunk } from "@/lib/ai/stream";
+import { extractDeltaFromChatChunk, parseChatCompletionText, parseSseChunk } from "@/lib/ai/stream";
 import type {
   AIMessage,
   AIProviderAdapter,
@@ -9,10 +9,6 @@ import type {
   ImportAsset,
   ProviderRuntimeConfig,
 } from "@/lib/types";
-
-type ChatCompletionResponse = {
-  choices?: Array<{ message?: { content?: string } }>;
-};
 
 export const kimiAdapter: AIProviderAdapter = {
   async uploadForExtraction(config, asset) {
@@ -162,8 +158,11 @@ async function createChatCompletion(
   await assertOk(response);
 
   if (!stream || !response.body || !("getReader" in response.body)) {
-    const json = (await response.json()) as ChatCompletionResponse;
-    return json.choices?.[0]?.message?.content ?? "";
+    const content = parseChatCompletionText(await response.text());
+    if (stream && content) {
+      onDelta?.(content);
+    }
+    return content;
   }
 
   const reader = response.body.getReader();

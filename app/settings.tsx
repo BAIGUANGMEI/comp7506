@@ -1,12 +1,20 @@
-import { Platform, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import * as ImagePicker from "expo-image-picker";
+import { useLocalSearchParams } from "expo-router";
+import { Image, Platform, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { useState } from "react";
+import { Image as ImageIcon } from "lucide-react-native";
 import { Button, Card, Screen, SectionTitle, TopBar } from "@/components/ui";
 import { colors, radius, spacing } from "@/config/theme";
 import { useApp } from "@/lib/AppProvider";
+import { imageAssetToDataUri } from "@/lib/user/avatar";
 import { getErrorMessage } from "@/lib/utils/errors";
 
 export default function SettingsScreen() {
-  const { config, apiKey, saveConfig, testConnection } = useApp();
+  const { entry } = useLocalSearchParams<{ entry?: string }>();
+  const stackEntry = entry === "stack";
+  const { config, profile, apiKey, saveConfig, saveProfile, testConnection } = useApp();
+  const [displayName, setDisplayName] = useState(profile.displayName);
+  const [avatarDataUri, setAvatarDataUri] = useState(profile.avatarDataUri ?? null);
   const [baseUrl, setBaseUrl] = useState(config.baseUrl);
   const [model, setModel] = useState(config.model);
   const [key, setKey] = useState(apiKey);
@@ -14,6 +22,42 @@ export default function SettingsScreen() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  async function pickAvatar() {
+    setMessage(null);
+    try {
+      if (Platform.OS !== "web") {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+          setMessage("Allow photo library access to update your avatar.");
+          return;
+        }
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+
+      if (result.canceled || !result.assets?.[0]) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      const dataUri = await imageAssetToDataUri({
+        uri: asset.uri,
+        name: asset.fileName ?? "avatar.jpg",
+        size: asset.fileSize,
+        mimeType: asset.mimeType ?? "image/jpeg",
+        file: asset.file,
+      });
+      setAvatarDataUri(dataUri);
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    }
+  }
 
   function nextConfig() {
     return {
@@ -29,6 +73,10 @@ export default function SettingsScreen() {
     setMessage(null);
     try {
       await saveConfig(nextConfig(), key.trim());
+      await saveProfile({
+        displayName,
+        avatarDataUri,
+      });
       setMessage("Settings saved.");
     } catch (error) {
       setMessage(getErrorMessage(error));
@@ -56,7 +104,7 @@ export default function SettingsScreen() {
 
   return (
     <Screen>
-      <TopBar title="Settings" menu />
+      <TopBar title="Settings" back={stackEntry} menu={!stackEntry} />
 
       {Platform.OS === "web" ? (
         <View style={styles.webNotice}>
@@ -67,6 +115,39 @@ export default function SettingsScreen() {
           </Text>
         </View>
       ) : null}
+
+      <SectionTitle>Profile</SectionTitle>
+      <Card style={styles.profileCard}>
+        <View style={styles.profileRow}>
+          <AvatarPreview avatarDataUri={avatarDataUri} displayName={displayName} />
+          <View style={styles.profileBody}>
+            <Field
+              label="Display Name"
+              value={displayName}
+              onChangeText={setDisplayName}
+              placeholder="User"
+            />
+            <View style={styles.avatarActions}>
+              <Button
+                variant="secondary"
+                onPress={pickAvatar}
+                style={styles.avatarButton}
+                icon={<ImageIcon size={17} color={colors.text} />}
+              >
+                Avatar
+              </Button>
+              <Button
+                variant="ghost"
+                onPress={() => setAvatarDataUri(null)}
+                disabled={!avatarDataUri}
+                style={styles.avatarButton}
+              >
+                Remove
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Card>
 
       <SectionTitle>AI Provider</SectionTitle>
       <Card style={styles.form}>
@@ -104,6 +185,26 @@ export default function SettingsScreen() {
         </Button>
       </View>
     </Screen>
+  );
+}
+
+function AvatarPreview({
+  avatarDataUri,
+  displayName,
+}: {
+  avatarDataUri?: string | null;
+  displayName: string;
+}) {
+  const initial = (displayName.trim()[0] || "U").toUpperCase();
+
+  return (
+    <View style={styles.avatarPreview}>
+      {avatarDataUri ? (
+        <Image source={{ uri: avatarDataUri }} style={styles.avatarImage} />
+      ) : (
+        <Text style={styles.avatarInitial}>{initial}</Text>
+      )}
+    </View>
   );
 }
 
@@ -173,6 +274,46 @@ const styles = StyleSheet.create({
   },
   form: {
     paddingVertical: spacing.sm,
+  },
+  profileCard: {
+    padding: spacing.md,
+  },
+  profileRow: {
+    flexDirection: "row",
+    gap: spacing.md,
+    alignItems: "center",
+  },
+  avatarPreview: {
+    width: 68,
+    height: 68,
+    borderRadius: radius.pill,
+    backgroundColor: "#BDB6AD",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+  },
+  avatarInitial: {
+    color: "#FFFFFF",
+    fontSize: 26,
+    fontWeight: "600",
+  },
+  profileBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  avatarActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  avatarButton: {
+    flex: 1,
+    minHeight: 42,
   },
   field: {
     paddingHorizontal: spacing.md,

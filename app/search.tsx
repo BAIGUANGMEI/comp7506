@@ -1,15 +1,18 @@
 import { router } from "expo-router";
 import { Search, X } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Card, EmptyState, IconButton, Screen, goBackOrHome } from "@/components/ui";
-import { colors, radius, spacing } from "@/config/theme";
+import { colors, layout, radius, spacing } from "@/config/theme";
 import { useApp } from "@/lib/AppProvider";
 
 type SearchResult = Awaited<ReturnType<ReturnType<typeof useApp>["searchAll"]>>[number];
 
 export default function SearchScreen() {
   const { searchAll } = useApp();
+  const insets = useSafeAreaInsets();
+  const topPadding = Math.max(insets.top + 2, 36);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [tab, setTab] = useState<"all" | "document" | "chat">("all");
@@ -34,87 +37,104 @@ export default function SearchScreen() {
       : results.filter((result) => (tab === "chat" ? result.type === "chat" : result.type !== "chat"));
 
   return (
-    <Screen>
-      <View style={styles.searchBar}>
-        <Search size={18} color={colors.textMuted} />
-        <TextInput
-          autoFocus
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Search documents and chats"
-          placeholderTextColor={colors.textSubtle}
-          style={styles.input}
-        />
-        {query ? (
-          <IconButton label="Clear search" onPress={() => setQuery("")} style={styles.closeButton}>
-            <X size={18} color={colors.textMuted} />
-          </IconButton>
-        ) : null}
-        <Text style={styles.cancel} onPress={goBackOrHome}>
-          Cancel
-        </Text>
-      </View>
-
-      <View style={styles.tabs}>
-        {[
-          ["all", "All"],
-          ["document", "Documents"],
-          ["chat", "Chats"],
-        ].map(([value, label]) => (
-          <Text
-            key={value}
-            onPress={() => setTab(value as typeof tab)}
-            style={[styles.tab, tab === value && styles.activeTab]}
-          >
-            {label}
-          </Text>
-        ))}
-      </View>
-
-      {query.trim() ? (
-        filtered.length > 0 ? (
-          <Card>
-            {filtered.map((result, index) => (
-              <Pressable
-                key={result.id}
-                accessibilityRole="button"
-                onPress={() => router.push(`/document/${result.documentId}`)}
-                style={[
-                  styles.result,
-                  index === filtered.length - 1 && styles.lastResult,
-                ]}
-              >
-                <Text style={styles.resultTitle}>{result.title}</Text>
-                <Text style={styles.resultBody} numberOfLines={3}>
-                  {result.excerpt}
-                </Text>
-                <Text style={styles.resultMeta}>{result.meta}</Text>
-              </Pressable>
-            ))}
-          </Card>
-        ) : (
-          <EmptyState
-            title="No matches"
-            body="Try another keyword, document title, or phrase from a chat answer."
+    <Screen scroll={false} padded={false} style={styles.screenContent}>
+      <View
+        style={[
+          styles.searchBar,
+          {
+            height: topPadding + 54,
+            paddingTop: topPadding,
+            paddingHorizontal: layout.screenMargin,
+          },
+        ]}
+      >
+          <Search size={18} color={colors.textMuted} />
+          <TextInput
+            autoFocus
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search documents and chats"
+            placeholderTextColor={colors.textSubtle}
+            style={styles.input}
           />
-        )
-      ) : (
-        <EmptyState
-          title="Search your workspace"
-          body="Find document titles, extracted text chunks, and previous AI answers."
-        />
-      )}
+          {query ? (
+            <IconButton label="Clear search" onPress={() => setQuery("")} style={styles.closeButton}>
+              <X size={18} color={colors.textMuted} />
+            </IconButton>
+          ) : null}
+          <Text style={styles.cancel} onPress={goBackOrHome}>
+            Cancel
+          </Text>
+        </View>
+
+        <View style={styles.tabs}>
+          {[
+            ["all", "All"],
+            ["document", "Documents"],
+            ["chat", "Chats"],
+          ].map(([value, label]) => (
+            <Text
+              key={value}
+              onPress={() => setTab(value as typeof tab)}
+              style={[styles.tab, tab === value && styles.activeTab]}
+            >
+              {label}
+            </Text>
+          ))}
+        </View>
+
+        <ScrollView
+          style={styles.resultsScroll}
+          contentContainerStyle={styles.resultsContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          {query.trim() ? (
+            filtered.length > 0 ? (
+              <Card>
+                {filtered.map((result, index) => (
+                  <Pressable
+                    key={result.id}
+                    accessibilityRole="button"
+                    onPress={() => router.push(`/document/${result.documentId}`)}
+                    style={[
+                      styles.result,
+                      index === filtered.length - 1 && styles.lastResult,
+                    ]}
+                  >
+                    <Text style={styles.resultTitle}>{result.title}</Text>
+                    <Text style={styles.resultBody} numberOfLines={3}>
+                      {result.excerpt}
+                    </Text>
+                    <Text style={styles.resultMeta}>{result.meta}</Text>
+                  </Pressable>
+                ))}
+              </Card>
+            ) : (
+              <EmptyState
+                title="No matches"
+                body="Try another keyword, document title, or phrase from a chat answer."
+              />
+            )
+          ) : (
+            <EmptyState
+              title="Search your workspace"
+              body="Find document titles, extracted text chunks, and previous AI answers."
+            />
+          )}
+        </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  screenContent: {
+    flex: 1,
+    minHeight: 0,
+  },
   searchBar: {
-    height: 102,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
-    paddingTop: 36,
   },
   input: {
     flex: 1,
@@ -140,8 +160,10 @@ const styles = StyleSheet.create({
   tabs: {
     flexDirection: "row",
     gap: spacing.md,
-    marginTop: spacing.md,
-    marginBottom: spacing.md,
+    paddingHorizontal: layout.screenMargin,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.background,
   },
   tab: {
     color: colors.textMuted,
@@ -154,6 +176,15 @@ const styles = StyleSheet.create({
   activeTab: {
     color: colors.primary,
     backgroundColor: colors.primarySoft,
+  },
+  resultsScroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+  resultsContent: {
+    flexGrow: 1,
+    paddingHorizontal: layout.screenMargin,
+    paddingBottom: 34,
   },
   result: {
     padding: spacing.lg,

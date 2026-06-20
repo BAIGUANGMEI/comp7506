@@ -2,7 +2,7 @@ import { useLocalSearchParams } from "expo-router";
 import { Send } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
+  Animated,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -11,6 +11,8 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { MarkdownContent } from "@/components/MarkdownContent";
 import { Card, DocumentBadge, IconButton, Screen, TopBar } from "@/components/ui";
 import { colors, layout, radius, spacing } from "@/config/theme";
 import { useApp } from "@/lib/AppProvider";
@@ -19,36 +21,70 @@ import { getErrorMessage } from "@/lib/utils/errors";
 
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { getDocumentById, getMessages, sendQuestion } = useApp();
+  const insets = useSafeAreaInsets();
+  const { activeChats, getDocumentById, getMessages, sendQuestion } = useApp();
   const [document, setDocument] = useState<DocumentRecord | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [streaming, setStreaming] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const mountedRef = useRef(true);
+  const hadActiveChatRef = useRef(false);
+  const activeChat = id ? activeChats[id] : undefined;
+  const activeStatus = activeChat?.status;
+  const activePartial = activeChat?.partial ?? "";
+  const busy = submitting || activeStatus === "pending";
+  const activeError = activeStatus === "failed" ? activeChat?.error : error;
+
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
 
   const load = useCallback(async () => {
     if (!id) {
       return;
     }
-    setDocument(await getDocumentById(id));
-    setMessages(await getMessages(id));
+    const nextDocument = await getDocumentById(id);
+    const nextMessages = await getMessages(id);
+    if (!mountedRef.current) {
+      return;
+    }
+    setDocument(nextDocument);
+    setMessages(nextMessages);
   }, [getDocumentById, getMessages, id]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  async function submit() {
+  useEffect(() => {
+    if (activeStatus === "pending") {
+      hadActiveChatRef.current = true;
+    }
+    if (hadActiveChatRef.current && activeStatus !== "pending") {
+      hadActiveChatRef.current = false;
+      load();
+    }
+  }, [activeStatus, load]);
+
+  useEffect(() => {
+    if (busy || activePartial) {
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+    }
+  }, [activePartial, busy]);
+
+  function submit() {
     if (!id || !input.trim() || busy) {
       return;
     }
     const question = input.trim();
     setInput("");
-    setBusy(true);
+    setSubmitting(true);
     setError(null);
-    setStreaming("");
     setMessages((current) => [
       ...current,
       {
@@ -59,18 +95,22 @@ export default function ChatScreen() {
         createdAt: new Date().toISOString(),
       },
     ]);
-    try {
-      await sendQuestion(id, question, (delta) => {
-        setStreaming((current) => current + delta);
-        requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+    sendQuestion(id, question)
+      .then(() => {
+        if (mountedRef.current) {
+          load();
+        }
+      })
+      .catch((nextError) => {
+        if (mountedRef.current) {
+          setError(getErrorMessage(nextError));
+        }
+      })
+      .finally(() => {
+        if (mountedRef.current) {
+          setSubmitting(false);
+        }
       });
-      setStreaming("");
-      await load();
-    } catch (nextError) {
-      setError(getErrorMessage(nextError));
-    } finally {
-      setBusy(false);
-    }
   }
 
   return (
@@ -101,7 +141,7 @@ export default function ChatScreen() {
           keyboardShouldPersistTaps="handled"
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
         >
-          {messages.length === 0 && !streaming ? (
+          {messages.length === 0 && !busy && !activePartial ? (
             <View style={styles.suggestionWrap}>
               {[
                 "Summarize the key decisions.",
@@ -117,16 +157,21 @@ export default function ChatScreen() {
           {messages.map((message) => (
             <Bubble key={message.id} message={message} />
           ))}
-          {streaming ? (
+          {activePartial ? (
             <View style={[styles.bubble, styles.aiBubble]}>
-              <Text style={styles.aiText}>{streaming}</Text>
+              <MarkdownContent text={activePartial} compact />
             </View>
           ) : null}
-          {busy && !streaming ? <ActivityIndicator color={colors.primary} /> : null}
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {busy && !activePartial ? <TypingBubble /> : null}
+          {activeError ? <Text style={styles.error}>{activeError}</Text> : null}
         </ScrollView>
 
-        <View style={styles.inputWrap}>
+        <View
+          style={[
+            styles.inputWrap,
+            { paddingBottom: Math.max(insets.bottom + spacing.sm, layout.screenMargin) },
+          ]}
+        >
           <TextInput
             value={input}
             onChangeText={setInput}
@@ -135,7 +180,11 @@ export default function ChatScreen() {
             multiline
             style={styles.input}
           />
-          <IconButton label="Send" onPress={submit} style={styles.sendButton}>
+          <IconButton
+            label="Send"
+            onPress={submit}
+            style={[styles.sendButton, busy && styles.sendButtonDisabled]}
+          >
             <Send size={20} color="#FFFFFF" />
           </IconButton>
         </View>
@@ -148,7 +197,69 @@ function Bubble({ message }: { message: ChatMessage }) {
   const user = message.role === "user";
   return (
     <View style={[styles.bubble, user ? styles.userBubble : styles.aiBubble]}>
-      <Text style={user ? styles.userText : styles.aiText}>{message.content}</Text>
+      {user ? (
+        <Text style={styles.userText}>{message.content}</Text>
+      ) : (
+        <MarkdownContent text={message.content} compact />
+      )}
+    </View>
+  );
+}
+
+function TypingBubble() {
+  const dots = useRef([
+    new Animated.Value(0.35),
+    new Animated.Value(0.35),
+    new Animated.Value(0.35),
+  ]).current;
+
+  useEffect(() => {
+    const animations = dots.map((dot, index) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(index * 120),
+          Animated.timing(dot, {
+            toValue: 1,
+            duration: 260,
+            useNativeDriver: true,
+          }),
+          Animated.timing(dot, {
+            toValue: 0.35,
+            duration: 260,
+            useNativeDriver: true,
+          }),
+          Animated.delay(220),
+        ]),
+      ),
+    );
+
+    animations.forEach((animation) => animation.start());
+    return () => {
+      animations.forEach((animation) => animation.stop());
+    };
+  }, [dots]);
+
+  return (
+    <View style={[styles.bubble, styles.aiBubble, styles.typingBubble]}>
+      {dots.map((dot, index) => (
+        <Animated.View
+          key={index}
+          style={[
+            styles.typingDot,
+            {
+              opacity: dot,
+              transform: [
+                {
+                  translateY: dot.interpolate({
+                    inputRange: [0.35, 1],
+                    outputRange: [0, -4],
+                  }),
+                },
+              ],
+            },
+          ]}
+        />
+      ))}
     </View>
   );
 }
@@ -266,5 +377,21 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     backgroundColor: colors.primary,
+  },
+  sendButtonDisabled: {
+    opacity: 0.5,
+  },
+  typingBubble: {
+    minWidth: 74,
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  typingDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.textMuted,
   },
 });

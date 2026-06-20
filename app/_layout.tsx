@@ -1,8 +1,7 @@
-import "react-native-gesture-handler";
-import "react-native-reanimated";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { ActivityIndicator, View } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { SideDrawer } from "@/components/SideDrawer";
 import { AppProvider, useApp } from "@/lib/AppProvider";
 import { colors } from "@/config/theme";
@@ -41,8 +40,10 @@ function RootStack() {
 
 export default function Layout() {
   return (
-    <AppProvider>
-      <RootStack />
-    </AppProvider>
+    <SafeAreaProvider>
+      <AppProvider>
+        <RootStack />
+      </AppProvider>
+    </SafeAreaProvider>
   );
 }
