@@ -24,6 +24,14 @@
     "plugins": [
       "expo-router",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Document AI to choose an avatar from your photo library.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      [
         "expo-sqlite",
         {
           "enableFTS": true
