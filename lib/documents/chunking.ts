@@ -40,11 +40,15 @@ export function inferSectionTitle(text: string) {
   if (markdownHeading?.[1]) {
     return markdownHeading[1].trim().slice(0, 120);
   }
+
   const firstLine = text
     .split("\n")
     .map((line) => line.trim())
     .find((line) => line.length > 0 && line.length < 100);
-  return firstLine ?? null;
+  if (firstLine) {
+    return firstLine;
+  }
+  return null;
 }
 
 export function selectRelevantChunks(

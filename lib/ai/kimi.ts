@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import { buildDocumentChatSystemPrompt } from "@/lib/ai/prompts";
 import { buildContextBlock } from "@/lib/documents/chunking";
 import { extractDeltaFromChatChunk, parseChatCompletionText, parseSseChunk } from "@/lib/ai/stream";
 import type {
@@ -118,13 +119,13 @@ export function buildDocumentChatMessages(
   chunks: DocumentChunk[],
   history: Array<{ role: "user" | "assistant"; content: string }>,
   question: string,
+  agentSystemPrompt?: string,
 ): AIMessage[] {
   const context = buildContextBlock(chunks);
   return [
     {
       role: "system",
-      content:
-        "You answer questions using only the supplied document context. If the answer is not in the context, say what is missing. Keep answers in English and cite chunk numbers when useful.",
+      content: buildDocumentChatSystemPrompt(agentSystemPrompt),
     },
     {
       role: "system",

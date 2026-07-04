@@ -12,17 +12,26 @@ import React, {
 } from "react";
 import { buildDocumentChatMessages, kimiAdapter } from "@/lib/ai/kimi";
 import { buildRuntimeConfig, normalizeProviderBaseUrl } from "@/lib/ai/provider";
+import { DEFAULT_AGENT_CONFIG, DEFAULT_AUTH_CONFIG } from "@/config/defaults";
 import { chunkText, searchChunks, selectRelevantChunks } from "@/lib/documents/chunking";
 import { titleFromFilename, validateImportAsset } from "@/lib/documents/assets";
 import { tryReadOriginalText } from "@/lib/documents/original";
 import { DATABASE_NAME, migrateDb } from "@/lib/storage/db";
 import {
   addChatMessage,
+  clearAuthAccount as clearAuthAccountInDb,
+  createChatSession as createChatSessionInDb,
   createFolder as createFolderInDb,
-  deleteDocument as deleteDocumentFromDb,
+  deleteChatSession as deleteChatSessionFromDb,
   deleteFolder as deleteFolderFromDb,
+  getAgentConfig,
+  getAuthAccount,
+  getAuthConfig,
   getAllChunks,
   getChatMessages,
+  getChatMessagesForSession,
+  getChatSession,
+  getChatSessions as getChatSessionsFromDb,
   getChunks,
   getDocument,
   getDocuments,
@@ -30,19 +39,31 @@ import {
   getFolder,
   getFolders,
   getProviderConfig,
+  getTrashedDocuments as getTrashedDocumentsFromDb,
   getUserProfile,
   moveDocumentToFolder as moveDocumentToFolderInDb,
+  moveDocumentToTrash,
   patchDocument,
+  permanentlyDeleteDocument as permanentlyDeleteDocumentFromDb,
   replaceChunks,
   renameFolder as renameFolderInDb,
+  restoreDocument as restoreDocumentInDb,
   saveProviderConfig,
+  saveAgentConfig as saveAgentConfigToDb,
+  saveAuthAccount as saveAuthAccountToDb,
+  saveAuthConfig as saveAuthConfigToDb,
   saveUserProfile as saveUserProfileToDb,
+  updateChatSession,
   upsertDocument,
 } from "@/lib/storage/repository";
 import { getSecret, setSecret } from "@/lib/storage/secure";
 import type {
   ChatMessage,
   ActiveChat,
+  AgentConfig,
+  AuthAccount,
+  AuthConfig,
+  ChatSession,
   DocumentChunk,
   DocumentRecord,
   FolderRecord,
@@ -59,6 +80,7 @@ type SearchResult = {
   id: string;
   type: "document" | "chunk" | "chat";
   documentId: string;
+  sessionId?: string | null;
   title: string;
   excerpt: string;
   meta: string;
@@ -70,6 +92,9 @@ type AppContextValue = {
   documents: DocumentRecord[];
   folders: FolderRecord[];
   config: ProviderConfig;
+  agentConfig: AgentConfig;
+  authConfig: AuthConfig;
+  authAccount: AuthAccount | null;
   profile: UserProfile;
   apiKey: string;
   activeChats: Record<string, ActiveChat>;
@@ -78,6 +103,10 @@ type AppContextValue = {
   closeDrawer: () => void;
   refresh: () => Promise<void>;
   saveConfig: (next: ProviderConfig, apiKey: string) => Promise<void>;
+  saveAgentConfig: (next: AgentConfig) => Promise<void>;
+  saveAuthConfig: (next: AuthConfig) => Promise<void>;
+  saveAuthAccount: (next: AuthAccount) => Promise<void>;
+  signOutAuth: () => Promise<void>;
   saveProfile: (next: UserProfile) => Promise<void>;
   testConnection: (override?: { config: ProviderConfig; apiKey: string }) => Promise<void>;
   importAsset: (
@@ -85,17 +114,24 @@ type AppContextValue = {
     options?: { analyzeWithAi?: boolean; folderId?: string | null },
   ) => Promise<DocumentRecord>;
   deleteDocument: (documentId: string) => Promise<void>;
+  restoreDocument: (documentId: string) => Promise<void>;
+  permanentlyDeleteDocument: (documentId: string) => Promise<void>;
   createFolder: (name: string) => Promise<FolderRecord>;
   renameFolder: (folderId: string, name: string) => Promise<void>;
   deleteFolder: (folderId: string) => Promise<void>;
   moveDocumentToFolder: (documentId: string, folderId: string | null) => Promise<void>;
   getDocumentById: (documentId: string) => Promise<DocumentRecord | null>;
+  getTrashedDocuments: () => Promise<DocumentRecord[]>;
   getFolderById: (folderId: string) => Promise<FolderRecord | null>;
   getDocumentsForFolder: (folderId: string) => Promise<DocumentRecord[]>;
   getDocumentChunks: (documentId: string) => Promise<DocumentChunk[]>;
+  createChatSession: (documentId: string) => Promise<ChatSession>;
+  deleteChatSession: (sessionId: string) => Promise<void>;
+  getChatSessions: (documentId: string) => Promise<ChatSession[]>;
   getMessages: (documentId: string) => Promise<ChatMessage[]>;
+  getMessagesForSession: (sessionId: string) => Promise<ChatMessage[]>;
   sendQuestion: (
-    documentId: string,
+    sessionId: string,
     question: string,
     onDelta?: (delta: string) => void,
   ) => Promise<ChatMessage>;
@@ -116,6 +152,9 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeChats, setActiveChats] = useState<Record<string, ActiveChat>>({});
   const activeChatTasks = useRef<Partial<Record<string, Promise<ChatMessage>>>>({});
+  const [agentConfig, setAgentConfigState] = useState<AgentConfig>(DEFAULT_AGENT_CONFIG);
+  const [authConfig, setAuthConfigState] = useState<AuthConfig>(DEFAULT_AUTH_CONFIG);
+  const [authAccount, setAuthAccount] = useState<AuthAccount | null>(null);
   const [config, setConfigState] = useState<ProviderConfig>({
     baseUrl: "https://api.moonshot.cn/v1",
     model: "kimi-k2.6",
@@ -131,6 +170,9 @@ export function AppProvider({ children }: PropsWithChildren) {
       await migrateDb(nextDb);
       const storedConfig = await getProviderConfig(nextDb);
       const storedProfile = await getUserProfile(nextDb);
+      const storedAgentConfig = await getAgentConfig(nextDb);
+      const storedAuthConfig = await getAuthConfig(nextDb);
+      const storedAuthAccount = await getAuthAccount(nextDb);
       const storedKey = (await getSecret(storedConfig.apiKeyRef)) ?? "";
       const storedDocuments = await getDocuments(nextDb);
       const storedFolders = await getFolders(nextDb);
@@ -139,6 +181,9 @@ export function AppProvider({ children }: PropsWithChildren) {
       }
       setDb(nextDb);
       setConfigState(storedConfig);
+      setAgentConfigState(storedAgentConfig);
+      setAuthConfigState(storedAuthConfig);
+      setAuthAccount(storedAuthAccount);
       setProfile(storedProfile);
       setApiKey(storedKey);
       setDocuments(storedDocuments);
@@ -203,6 +248,55 @@ export function AppProvider({ children }: PropsWithChildren) {
     [db],
   );
 
+  const saveAgentConfig = useCallback(
+    async (next: AgentConfig) => {
+      if (!db) {
+        return;
+      }
+      const normalized: AgentConfig = {
+        systemPrompt: next.systemPrompt.trim() || DEFAULT_AGENT_CONFIG.systemPrompt,
+      };
+      await saveAgentConfigToDb(db, normalized);
+      setAgentConfigState(normalized);
+    },
+    [db],
+  );
+
+  const saveAuthConfig = useCallback(
+    async (next: AuthConfig) => {
+      if (!db) {
+        return;
+      }
+      const normalized: AuthConfig = {
+        googleWebClientId: next.googleWebClientId.trim(),
+        googleIosClientId: next.googleIosClientId.trim(),
+        googleAndroidClientId: next.googleAndroidClientId.trim(),
+      };
+      await saveAuthConfigToDb(db, normalized);
+      setAuthConfigState(normalized);
+    },
+    [db],
+  );
+
+  const saveAuthAccount = useCallback(
+    async (next: AuthAccount) => {
+      if (!db) {
+        return;
+      }
+      await saveAuthAccountToDb(db, next);
+      setAuthAccount(next);
+    },
+    [db],
+  );
+
+  const signOutAuth = useCallback(async () => {
+    if (!db) {
+      return;
+    }
+    await clearAuthAccountInDb(db);
+    setAuthAccount(null);
+  }, [db]);
+
   const runtimeConfig = useCallback(
     (override?: { config: ProviderConfig; apiKey: string }): ProviderRuntimeConfig =>
       buildRuntimeConfig(override?.config ?? config, override?.apiKey ?? apiKey),
@@ -234,6 +328,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         status: "queued",
         folderId: options?.folderId ?? null,
         localUri: asset.uri,
+        fileSizeBytes: asset.size ?? null,
         originalText,
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -317,7 +412,29 @@ export function AppProvider({ children }: PropsWithChildren) {
       if (!db) {
         return;
       }
-      await deleteDocumentFromDb(db, documentId);
+      await moveDocumentToTrash(db, documentId, nowIso());
+      await refresh();
+    },
+    [db, refresh],
+  );
+
+  const restoreDocument = useCallback(
+    async (documentId: string) => {
+      if (!db) {
+        return;
+      }
+      await restoreDocumentInDb(db, documentId, nowIso());
+      await refresh();
+    },
+    [db, refresh],
+  );
+
+  const permanentlyDeleteDocument = useCallback(
+    async (documentId: string) => {
+      if (!db) {
+        return;
+      }
+      await permanentlyDeleteDocumentFromDb(db, documentId);
       await refresh();
     },
     [db, refresh],
@@ -414,6 +531,13 @@ export function AppProvider({ children }: PropsWithChildren) {
     [db],
   );
 
+  const getTrashedDocuments = useCallback(async () => {
+    if (!db) {
+      return [];
+    }
+    return getTrashedDocumentsFromDb(db);
+  }, [db]);
+
   const getFolderById = useCallback(
     async (folderId: string) => {
       if (!db) {
@@ -444,6 +568,50 @@ export function AppProvider({ children }: PropsWithChildren) {
     [db],
   );
 
+  const createChatSession = useCallback(
+    async (documentId: string) => {
+      if (!db) {
+        throw new Error("Database is not ready yet.");
+      }
+      const document = await getDocument(db, documentId);
+      if (!document) {
+        throw new Error("Document not found.");
+      }
+      const timestamp = nowIso();
+      const session: ChatSession = {
+        id: makeId("session"),
+        documentId,
+        title: "New conversation",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      await createChatSessionInDb(db, session);
+      return session;
+    },
+    [db],
+  );
+
+  const deleteChatSession = useCallback(
+    async (sessionId: string) => {
+      if (!db) {
+        return;
+      }
+      await deleteChatSessionFromDb(db, sessionId);
+      setActiveChats((current) => omitActiveChat(current, sessionId));
+    },
+    [db],
+  );
+
+  const getChatSessions = useCallback(
+    async (documentId: string) => {
+      if (!db) {
+        return [];
+      }
+      return getChatSessionsFromDb(db, documentId);
+    },
+    [db],
+  );
+
   const getMessages = useCallback(
     async (documentId: string) => {
       if (!db) {
@@ -454,10 +622,20 @@ export function AppProvider({ children }: PropsWithChildren) {
     [db],
   );
 
+  const getMessagesForSession = useCallback(
+    async (sessionId: string) => {
+      if (!db) {
+        return [];
+      }
+      return getChatMessagesForSession(db, sessionId);
+    },
+    [db],
+  );
+
   const sendQuestion = useCallback(
-    async (documentId: string, question: string, onDelta?: (delta: string) => void) => {
-      if (activeChatTasks.current[documentId]) {
-        throw new Error("A response is already in progress for this document.");
+    async (sessionId: string, question: string, onDelta?: (delta: string) => void) => {
+      if (activeChatTasks.current[sessionId]) {
+        throw new Error("A response is already in progress for this conversation.");
       }
       if (!db) {
         throw new Error("Database is not ready yet.");
@@ -465,50 +643,62 @@ export function AppProvider({ children }: PropsWithChildren) {
 
       const startedAt = nowIso();
       const task = (async () => {
-        setActiveChats((current) => ({
-          ...current,
-          [documentId]: {
-            documentId,
-            question,
-            partial: "",
-            status: "pending",
-            error: null,
-            startedAt,
-          },
-        }));
-
         try {
+          const session = await getChatSession(db, sessionId);
+          if (!session) {
+            throw new Error("Conversation not found.");
+          }
+          const { documentId } = session;
+          setActiveChats((current) => ({
+            ...current,
+            [sessionId]: {
+              sessionId,
+              documentId,
+              question,
+              partial: "",
+              status: "pending",
+              error: null,
+              startedAt,
+            },
+          }));
+
           const document = await getDocument(db, documentId);
           if (!document) {
             throw new Error("Document not found.");
           }
           const chunks = await getChunks(db, documentId);
           const relevant = selectRelevantChunks(chunks, question, 5);
-          const history = await getChatMessages(db, documentId);
+          const history = await getChatMessagesForSession(db, sessionId);
           const userMessage: ChatMessage = {
             id: makeId("msg"),
             documentId,
+            sessionId,
             role: "user",
             content: question,
             createdAt: nowIso(),
           };
           await addChatMessage(db, userMessage);
+          await updateChatSession(db, sessionId, {
+            title: history.length === 0 ? titleFromQuestion(question) : session.title,
+            updatedAt: userMessage.createdAt,
+          });
 
           const messages = buildDocumentChatMessages(
             document,
             relevant,
             history.map(({ role, content }) => ({ role, content })),
             question,
+            agentConfig.systemPrompt,
           );
           const content = await kimiAdapter.streamDocumentChat(runtimeConfig(), messages, (delta) => {
             setActiveChats((current) => {
-              const active = current[documentId];
+              const active = current[sessionId];
               if (!active || active.status !== "pending") {
                 return current;
               }
               return {
                 ...current,
-                [documentId]: {
+                [sessionId]: {
                   ...active,
                   partial: active.partial + delta,
                 },
@@ -519,21 +709,26 @@ export function AppProvider({ children }: PropsWithChildren) {
           const assistantMessage: ChatMessage = {
             id: makeId("msg"),
             documentId,
+            sessionId,
             role: "assistant",
             content,
             sourceChunkIds: relevant.map((chunk) => chunk.id),
             createdAt: nowIso(),
           };
           await addChatMessage(db, assistantMessage);
-          setActiveChats((current) => omitActiveChat(current, documentId));
+          await updateChatSession(db, sessionId, {
+            updatedAt: assistantMessage.createdAt,
+          });
+          setActiveChats((current) => omitActiveChat(current, sessionId));
           return assistantMessage;
         } catch (error) {
           setActiveChats((current) => ({
             ...current,
-            [documentId]: {
-              documentId,
+            [sessionId]: {
+              sessionId,
+              documentId: current[sessionId]?.documentId ?? "",
               question,
-              partial: current[documentId]?.partial ?? "",
+              partial: current[sessionId]?.partial ?? "",
               status: "failed",
               error: getErrorMessage(error),
               startedAt,
@@ -543,14 +738,14 @@ export function AppProvider({ children }: PropsWithChildren) {
         }
       })();
 
-      activeChatTasks.current[documentId] = task;
+      activeChatTasks.current[sessionId] = task;
       task.finally(() => {
-        delete activeChatTasks.current[documentId];
+        delete activeChatTasks.current[sessionId];
       }).catch(() => undefined);
 
       return task;
     },
-    [db, runtimeConfig],
+    [agentConfig.systemPrompt, db, runtimeConfig],
   );
 
   const searchAll = useCallback(
@@ -599,6 +794,7 @@ export function AppProvider({ children }: PropsWithChildren) {
               id: `chat-${message.id}`,
               type: "chat",
               documentId: doc.id,
+              sessionId: message.sessionId ?? null,
               title: doc.title,
               excerpt: message.content.slice(0, 220),
               meta: `Chat · ${formatShortDate(message.createdAt)}`,
@@ -619,6 +815,9 @@ export function AppProvider({ children }: PropsWithChildren) {
       documents,
       folders,
       config,
+      agentConfig,
+      authConfig,
+      authAccount,
       profile,
       apiKey,
       activeChats,
@@ -627,19 +826,30 @@ export function AppProvider({ children }: PropsWithChildren) {
       closeDrawer,
       refresh,
       saveConfig,
+      saveAgentConfig,
+      saveAuthConfig,
+      saveAuthAccount,
+      signOutAuth,
       saveProfile,
       testConnection,
       importAsset,
       deleteDocument,
+      restoreDocument,
+      permanentlyDeleteDocument,
       createFolder,
       renameFolder,
       deleteFolder,
       moveDocumentToFolder,
       getDocumentById,
+      getTrashedDocuments,
       getFolderById,
       getDocumentsForFolder,
       getDocumentChunks,
+      createChatSession,
+      deleteChatSession,
+      getChatSessions,
       getMessages,
+      getMessagesForSession,
       sendQuestion,
       searchAll,
     }),
@@ -649,6 +859,9 @@ export function AppProvider({ children }: PropsWithChildren) {
       documents,
       folders,
       config,
+      agentConfig,
+      authConfig,
+      authAccount,
       profile,
       apiKey,
       activeChats,
@@ -657,19 +870,30 @@ export function AppProvider({ children }: PropsWithChildren) {
       closeDrawer,
       refresh,
       saveConfig,
+      saveAgentConfig,
+      saveAuthConfig,
+      saveAuthAccount,
+      signOutAuth,
       saveProfile,
       testConnection,
       importAsset,
       deleteDocument,
+      restoreDocument,
+      permanentlyDeleteDocument,
       createFolder,
       renameFolder,
       deleteFolder,
       moveDocumentToFolder,
       getDocumentById,
+      getTrashedDocuments,
       getFolderById,
       getDocumentsForFolder,
       getDocumentChunks,
+      createChatSession,
+      deleteChatSession,
+      getChatSessions,
       getMessages,
+      getMessagesForSession,
       sendQuestion,
       searchAll,
     ],
@@ -686,10 +910,17 @@ export function useApp() {
   return context;
 }
 
-function omitActiveChat(chats: Record<string, ActiveChat>, documentId: string) {
+function omitActiveChat(chats: Record<string, ActiveChat>, sessionId: string) {
   const next = { ...chats };
-  delete next[documentId];
+  delete next[sessionId];
   return next;
+}
+
+function titleFromQuestion(question: string) {
+  return question
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 54) || "New conversation";
 }
 
 async function updateDocument(

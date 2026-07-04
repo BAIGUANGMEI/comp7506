@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildChatTranscriptMarkdown, chatTranscriptFilename } from "@/lib/chat/export";
 import { getExtension, validateImportAsset } from "@/lib/documents/assets";
 import { shouldPreserveOriginalText } from "@/lib/documents/original";
 import {
@@ -59,6 +60,14 @@ describe("document chunking and retrieval", () => {
     expect(chunks[0].sectionTitle).toBe("Product Plan");
   });
 
+  it("leaves section title empty when no heading-like line exists", () => {
+    const chunks = chunkText(
+      "doc_1",
+      "This extracted paragraph is intentionally long enough that it does not look like a short section heading, and it should not be shown as a table of contents title.",
+    );
+    expect(chunks[0].sectionTitle).toBeNull();
+  });
+
   it("selects relevant chunks by query terms", () => {
     const chunks = chunkText(
       "doc_1",
@@ -80,5 +89,59 @@ describe("document chunking and retrieval", () => {
   it("builds context blocks with chunk labels", () => {
     const chunks = chunkText("doc_1", "# Scope\nA short document.");
     expect(buildContextBlock(chunks)).toContain("[Chunk 1: Scope]");
+  });
+});
+
+describe("chat export", () => {
+  it("builds a markdown transcript with sourced AI messages", () => {
+    const markdown = buildChatTranscriptMarkdown({
+      document: {
+        id: "doc_1",
+        title: "Launch Plan",
+        ext: "md",
+        mime: "text/markdown",
+        status: "ready",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      chunks: [
+        {
+          id: "chunk_1",
+          documentId: "doc_1",
+          chunkIndex: 0,
+          text: "Budget approval is the key risk.",
+          sectionTitle: "Risks",
+        },
+      ],
+      messages: [
+        {
+          id: "msg_1",
+          documentId: "doc_1",
+          role: "user",
+          content: "What is the main risk?",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+        {
+          id: "msg_2",
+          documentId: "doc_1",
+          role: "assistant",
+          content: "The main risk is budget approval.",
+          sourceChunkIds: ["chunk_1"],
+          createdAt: "2026-01-01T00:01:00.000Z",
+        },
+      ],
+      exportedAt: "2026-01-01T00:02:00.000Z",
+    });
+
+    expect(markdown).toContain("# AI Conversation - Launch Plan");
+    expect(markdown).toContain("### User");
+    expect(markdown).toContain("### AI");
+    expect(markdown).toContain("Sources: Chunk 1: Risks");
+  });
+
+  it("creates a safe markdown filename", () => {
+    expect(chatTranscriptFilename("Launch Plan.pdf", new Date("2026-01-02T00:00:00Z"))).toBe(
+      "launch-plan-pdf-chat-2026-01-02.md",
+    );
   });
 });

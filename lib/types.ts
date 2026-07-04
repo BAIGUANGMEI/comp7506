@@ -23,6 +23,27 @@ export type UserProfile = {
   avatarDataUri?: string | null;
 };
 
+export type AgentConfig = {
+  systemPrompt: string;
+};
+
+export type AuthProvider = "apple" | "google";
+
+export type AuthAccount = {
+  provider: AuthProvider;
+  subject: string;
+  email?: string | null;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  signedInAt: string;
+};
+
+export type AuthConfig = {
+  googleWebClientId: string;
+  googleIosClientId: string;
+  googleAndroidClientId: string;
+};
+
 export type DocumentRecord = {
   id: string;
   title: string;
@@ -31,11 +52,13 @@ export type DocumentRecord = {
   status: DocumentStatus;
   folderId?: string | null;
   localUri?: string | null;
+  fileSizeBytes?: number | null;
   originalText?: string | null;
   extractedText?: string | null;
   summary?: string | null;
   visualSummary?: string | null;
   error?: string | null;
+  deletedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -59,9 +82,18 @@ export type DocumentChunk = {
 
 export type ChatRole = "system" | "user" | "assistant";
 
+export type ChatSession = {
+  id: string;
+  documentId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ChatMessage = {
   id: string;
   documentId: string;
+  sessionId?: string | null;
   role: Exclude<ChatRole, "system">;
   content: string;
   sourceChunkIds?: string[] | null;
@@ -69,6 +101,7 @@ export type ChatMessage = {
 };
 
 export type ActiveChat = {
+  sessionId: string;
   documentId: string;
   question: string;
   partial: string;
