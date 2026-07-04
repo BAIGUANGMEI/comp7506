@@ -5,14 +5,15 @@ import {
   Linking,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { NativePdfPreview } from "@/components/NativePdfPreview";
-import { Button, EmptyState, IconButton, Screen, TopBar } from "@/components/ui";
-import { colors, radius, spacing } from "@/config/theme";
+import { EmptyState, IconButton, Screen, TopBar } from "@/components/ui";
+import { colors, layout, radius, spacing } from "@/config/theme";
 import { useApp } from "@/lib/AppProvider";
 import type { DocumentChunk, DocumentRecord } from "@/lib/types";
 
@@ -71,7 +72,7 @@ export default function ReaderScreen() {
   const readerKind = getReaderKind(document.ext);
 
   return (
-    <Screen>
+    <Screen scroll={false} style={styles.screenContent}>
       <TopBar
         title="Reader"
         back
@@ -87,18 +88,30 @@ export default function ReaderScreen() {
         }
       />
 
-      <View style={styles.header}>
-        <Text style={styles.h1}>{document.title}</Text>
-        <Text style={styles.meta}>
-          {readerLabel(readerKind)} · {document.ext.toUpperCase()} · {chunks.length || 1} sections
-        </Text>
-      </View>
+      <ScrollView
+        style={styles.readerScroll}
+        contentContainerStyle={styles.readerScrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.header}>
+          <Text style={styles.h1}>{document.title}</Text>
+          <Text style={styles.meta}>
+            {readerLabel(readerKind)} · {document.ext.toUpperCase()} · {chunks.length || 1} sections
+          </Text>
+        </View>
 
-      <ReaderByFormat document={document} kind={readerKind} text={readerBody} />
+        <ReaderByFormat document={document} kind={readerKind} text={readerBody} />
+      </ScrollView>
 
-      <Button onPress={() => router.push(`/document/${document.id}/chat`)}>
-        Ask about this document
-      </Button>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Ask AI about this document"
+        onPress={() => router.push(`/document/${document.id}/chat`)}
+        style={({ pressed }) => [styles.floatingAskButton, pressed && styles.pressed]}
+      >
+        <MessageCircle size={19} color="#FFFFFF" />
+        <Text style={styles.floatingAskText}>Ask AI</Text>
+      </Pressable>
     </Screen>
   );
 }
@@ -326,6 +339,17 @@ function splitParagraphs(text: string) {
 }
 
 const styles = StyleSheet.create({
+  screenContent: {
+    flex: 1,
+    minHeight: 0,
+  },
+  readerScroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+  readerScrollContent: {
+    paddingBottom: 112,
+  },
   header: {
     marginTop: spacing.lg,
     marginBottom: spacing.lg,
@@ -371,6 +395,24 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.65,
+  },
+  floatingAskButton: {
+    position: "absolute",
+    right: layout.screenMargin,
+    bottom: 28,
+    minHeight: 52,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+  },
+  floatingAskText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "700",
   },
   markdownPage: {
     backgroundColor: colors.surface,

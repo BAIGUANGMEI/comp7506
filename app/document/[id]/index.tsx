@@ -47,14 +47,14 @@ export default function DocumentDetailScreen() {
       router.replace("/");
     };
     if (Platform.OS === "web") {
-      if (window.confirm("Delete this document and its local summary, chunks, and chat history?")) {
+      if (window.confirm("Move this document to Trash? You can restore it later from the Trash page.")) {
         await run();
       }
       return;
     }
-    Alert.alert("Delete document?", "This removes the local summary, chunks, and chat history.", [
+    Alert.alert("Move to Trash?", "You can restore this document later from the Trash page.", [
       { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: run },
+      { text: "Move to Trash", style: "destructive", onPress: run },
     ]);
   }
 
@@ -86,13 +86,15 @@ export default function DocumentDetailScreen() {
     );
   }
 
+  const visualSummary = visibleVisualSummary(document.visualSummary);
+
   return (
     <Screen>
       <TopBar
         title="Document Detail"
         back
         right={
-          <IconButton label="Delete document" onPress={remove}>
+          <IconButton label="Move document to Trash" onPress={remove}>
             <Trash2 size={20} color={colors.danger} />
           </IconButton>
         }
@@ -107,6 +109,21 @@ export default function DocumentDetailScreen() {
           </Text>
         </View>
         <StatusPill status={document.status} />
+      </View>
+
+      <View style={styles.actions}>
+        <Button
+          variant="secondary"
+          onPress={() => router.push(`/document/${document.id}/reader`)}
+        >
+          Read
+        </Button>
+        <Button
+          onPress={() => router.push(`/document/${document.id}/chat`)}
+          disabled={document.status !== "ready"}
+        >
+          Ask AI
+        </Button>
       </View>
 
       {document.error ? <Text style={styles.error}>{document.error}</Text> : null}
@@ -142,40 +159,47 @@ export default function DocumentDetailScreen() {
         emptyText="The document is still being processed. Pull back later for the summary."
       />
 
-      <SectionTitle>Visual Content</SectionTitle>
-      <CollapsibleMarkdownCard
-        text={document.visualSummary}
-        emptyText="No visual content was detected in the extraction."
-      />
-
-      <SectionTitle>Table of Contents</SectionTitle>
-      <Card>
-        {chunks.slice(0, 5).map((chunk, index) => (
-          <Property
-            key={chunk.id}
-            label={`Chunk ${index + 1}`}
-            value={chunk.sectionTitle || "Untitled section"}
-            last={index === Math.min(chunks.length, 5) - 1}
+      {visualSummary ? (
+        <>
+          <SectionTitle>Visual Content</SectionTitle>
+          <CollapsibleMarkdownCard
+            text={visualSummary}
+            emptyText="No visual content was detected in the extraction."
           />
-        ))}
-      </Card>
+        </>
+      ) : null}
 
-      <View style={styles.actions}>
-        <Button
-          variant="secondary"
-          onPress={() => router.push(`/document/${document.id}/reader`)}
-        >
-          Read
-        </Button>
-        <Button
-          onPress={() => router.push(`/document/${document.id}/chat`)}
-          disabled={document.status !== "ready"}
-        >
-          Ask AI
-        </Button>
-      </View>
+      {chunks.length > 0 ? (
+        <>
+          <SectionTitle>Chunks</SectionTitle>
+          <Card style={styles.chunkList}>
+            {chunks.map((chunk, index) => (
+              <ChunkPreview
+                key={chunk.id}
+                chunk={chunk}
+                last={index === chunks.length - 1}
+              />
+            ))}
+          </Card>
+        </>
+      ) : null}
+
     </Screen>
   );
+}
+
+function visibleVisualSummary(text?: string | null) {
+  const content = text?.trim();
+  if (!content) {
+    return null;
+  }
+  if (/^AI visual analysis was not run/i.test(content)) {
+    return null;
+  }
+  if (/^No visual content/i.test(content)) {
+    return null;
+  }
+  return content;
 }
 
 function folderName(folderId: string | null | undefined, folders: Array<{ id: string; name: string }>) {
@@ -236,6 +260,21 @@ function Property({
       <Text style={styles.propertyValue} numberOfLines={2}>
         {value}
       </Text>
+    </View>
+  );
+}
+
+function ChunkPreview({ chunk, last }: { chunk: DocumentChunk; last?: boolean }) {
+  const title = chunk.sectionTitle?.trim();
+
+  return (
+    <View style={[styles.chunkItem, last && styles.lastChunkItem]}>
+      <Text style={styles.chunkNumber}>Chunk {chunk.chunkIndex + 1}</Text>
+      {title ? (
+        <Text style={styles.chunkTitle} numberOfLines={1}>
+          {title}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -403,9 +442,33 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
   },
+  chunkList: {
+    paddingVertical: spacing.xs,
+  },
+  chunkItem: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    gap: spacing.xs,
+  },
+  lastChunkItem: {
+    borderBottomWidth: 0,
+  },
+  chunkNumber: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: "700",
+    textTransform: "uppercase",
+  },
+  chunkTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "700",
+  },
   actions: {
     flexDirection: "row",
     gap: spacing.md,
-    marginTop: spacing.xl,
+    marginBottom: spacing.md,
   },
 });

@@ -341,6 +341,8 @@ export const styles = StyleSheet.create({
     alignItems: "center",
   },
   topBarRight: {
+    width: "auto",
+    minWidth: 92,
     justifyContent: "flex-end",
     gap: spacing.sm,
   },

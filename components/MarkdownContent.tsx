@@ -12,9 +12,10 @@ type MarkdownBlock =
 type MarkdownContentProps = {
   text: string;
   compact?: boolean;
+  renderChunkCitations?: boolean;
 };
 
-export function MarkdownContent({ text, compact }: MarkdownContentProps) {
+export function MarkdownContent({ text, compact, renderChunkCitations }: MarkdownContentProps) {
   const blocks = parseMarkdownBlocks(text);
 
   if (blocks.length === 0) {
@@ -35,7 +36,7 @@ export function MarkdownContent({ text, compact }: MarkdownContentProps) {
                 compact && styles.compactHeading,
               ]}
             >
-              {stripInlineMarkdown(block.text)}
+              {renderInlineText(block.text, renderChunkCitations)}
             </Text>
           );
         }
@@ -44,7 +45,7 @@ export function MarkdownContent({ text, compact }: MarkdownContentProps) {
             <View key={`${block.type}-${index}`} style={styles.listRow}>
               <Text style={[styles.bullet, compact && styles.compactText]}>•</Text>
               <Text style={[styles.text, compact && styles.compactText]}>
-                {stripInlineMarkdown(block.text)}
+                {renderInlineText(block.text, renderChunkCitations)}
               </Text>
             </View>
           );
@@ -53,7 +54,7 @@ export function MarkdownContent({ text, compact }: MarkdownContentProps) {
           return (
             <View key={`${block.type}-${index}`} style={styles.quote}>
               <Text style={[styles.quoteText, compact && styles.compactText]}>
-                {stripInlineMarkdown(block.text)}
+                {renderInlineText(block.text, renderChunkCitations)}
               </Text>
             </View>
           );
@@ -61,7 +62,7 @@ export function MarkdownContent({ text, compact }: MarkdownContentProps) {
         if (block.type === "code") {
           return (
             <Text key={`${block.type}-${index}`} style={[styles.codeBlock, compact && styles.compactCode]}>
-              {block.text}
+              {breakLongTokens(block.text, 38)}
             </Text>
           );
         }
@@ -70,7 +71,7 @@ export function MarkdownContent({ text, compact }: MarkdownContentProps) {
         }
         return (
           <Text key={`${block.type}-${index}`} style={[styles.text, compact && styles.compactText]}>
-            {stripInlineMarkdown(block.text)}
+            {renderInlineText(block.text, renderChunkCitations)}
           </Text>
         );
       })}
@@ -167,9 +168,63 @@ export function stripInlineMarkdown(text: string) {
     .replace(/`([^`]+)`/g, "$1");
 }
 
+function breakLongTokens(text: string, size = 44) {
+  return text
+    .split(/(\s+)/)
+    .map((part) => {
+      if (/\s/.test(part) || part.length <= size) {
+        return part;
+      }
+      return part.match(new RegExp(`.{1,${size}}`, "g"))?.join("\n") ?? part;
+    })
+    .join("");
+}
+
+function renderInlineText(text: string, renderChunkCitations?: boolean) {
+  const clean = stripInlineMarkdown(text);
+  if (!renderChunkCitations) {
+    return breakLongTokens(clean);
+  }
+
+  const parts = clean.split(/(\[\s*(?:chunk\s*)?\d{1,3}\s*\]|\(\s*chunk\s+\d{1,3}\s*\))/gi);
+  return parts.map((part, index) => {
+    const citation = /^\[\s*(?:chunk\s*)?(\d{1,3})\s*\]$/i.exec(part)
+      ?? /^\(\s*chunk\s+(\d{1,3})\s*\)$/i.exec(part);
+    if (!citation?.[1]) {
+      return breakLongTokens(part);
+    }
+    return (
+      <Text key={`citation-${index}`} style={styles.inlineCitation}>
+        {toSuperscriptNumber(Number(citation[1]))}
+      </Text>
+    );
+  });
+}
+
+export function toSuperscriptNumber(value: number) {
+  const superscriptDigits: Record<string, string> = {
+    "0": "⁰",
+    "1": "¹",
+    "2": "²",
+    "3": "³",
+    "4": "⁴",
+    "5": "⁵",
+    "6": "⁶",
+    "7": "⁷",
+    "8": "⁸",
+    "9": "⁹",
+  };
+  return String(value)
+    .split("")
+    .map((digit) => superscriptDigits[digit] ?? digit)
+    .join("");
+}
+
 const styles = StyleSheet.create({
   content: {
     gap: spacing.md,
+    maxWidth: "100%",
+    minWidth: 0,
   },
   compactContent: {
     gap: spacing.sm,
@@ -180,6 +235,8 @@ const styles = StyleSheet.create({
     lineHeight: 27,
     fontWeight: "800",
     marginTop: spacing.sm,
+    maxWidth: "100%",
+    flexShrink: 1,
   },
   heading1: {
     fontSize: 26,
@@ -198,32 +255,47 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 16,
     lineHeight: 26,
+    maxWidth: "100%",
+    flexShrink: 1,
   },
   compactText: {
     fontSize: 15,
     lineHeight: 23,
   },
+  inlineCitation: {
+    color: colors.primary,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800",
+  },
   listRow: {
     flexDirection: "row",
     gap: spacing.sm,
     alignItems: "flex-start",
+    maxWidth: "100%",
+    minWidth: 0,
   },
   bullet: {
     color: colors.text,
     fontSize: 18,
     lineHeight: 26,
     width: 14,
+    flexShrink: 0,
   },
   quote: {
     borderLeftWidth: 3,
     borderLeftColor: colors.border,
     paddingLeft: spacing.md,
     paddingVertical: spacing.xs,
+    maxWidth: "100%",
+    minWidth: 0,
   },
   quoteText: {
     color: colors.textMuted,
     fontSize: 16,
     lineHeight: 25,
+    maxWidth: "100%",
+    flexShrink: 1,
   },
   codeBlock: {
     color: colors.text,
@@ -232,6 +304,9 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     lineHeight: 22,
     fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
+    maxWidth: "100%",
+    flexShrink: 1,
+    overflow: "hidden",
   },
   compactCode: {
     fontSize: 13,

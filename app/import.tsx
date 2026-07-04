@@ -1,9 +1,9 @@
 import * as DocumentPicker from "expo-document-picker";
 import { router, useLocalSearchParams } from "expo-router";
-import { Check, Cloud, FileText, Folder, Upload } from "lucide-react-native";
+import { Check, ChevronDown, ChevronUp, Cloud, Folder, Upload } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { Alert, Platform, Pressable, StyleSheet, Switch, Text, View } from "react-native";
-import { Button, Card, DocumentBadge, Screen, SectionTitle, TopBar } from "@/components/ui";
+import { Card, Screen, SectionTitle, TopBar } from "@/components/ui";
 import { colors, radius, spacing } from "@/config/theme";
 import { useApp } from "@/lib/AppProvider";
 import { normalizePickerAsset } from "@/lib/documents/assets";
@@ -15,6 +15,7 @@ export default function ImportScreen() {
   const { importAsset, apiKey, folders } = useApp();
   const [analyzeWithAi, setAnalyzeWithAi] = useState(true);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(folderId ?? null);
+  const [folderDropdownOpen, setFolderDropdownOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -89,20 +90,16 @@ export default function ImportScreen() {
 
       <SectionTitle>Folder</SectionTitle>
       <Card>
-        <FolderOption
-          name="No Folder"
-          body="Keep this document in the main library."
-          selected={!selectedFolderId}
-          onPress={() => setSelectedFolderId(null)}
+        <FolderDropdown
+          folders={folders}
+          selectedFolderId={selectedFolderId}
+          open={folderDropdownOpen}
+          onToggle={() => setFolderDropdownOpen((current) => !current)}
+          onSelect={(nextFolderId) => {
+            setSelectedFolderId(nextFolderId);
+            setFolderDropdownOpen(false);
+          }}
         />
-        {folders.map((folder) => (
-          <FolderOption
-            key={folder.id}
-            folder={folder}
-            selected={selectedFolderId === folder.id}
-            onPress={() => setSelectedFolderId(folder.id)}
-          />
-        ))}
       </Card>
 
       <Pressable
@@ -123,88 +120,99 @@ export default function ImportScreen() {
       </Pressable>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
-
-      <SectionTitle>Supported Formats</SectionTitle>
-      <View style={styles.formatGrid}>
-        {["pdf", "md", "docx", "txt"].map((ext) => (
-          <View key={ext} style={styles.formatItem}>
-            <DocumentBadge ext={ext} />
-            <Text style={styles.formatLabel}>{ext === "docx" ? "Word" : ext.toUpperCase()}</Text>
-          </View>
-        ))}
-      </View>
-
-      <SectionTitle>Import Pipeline</SectionTitle>
-      <Card>
-        <PipelineRow
-          title={analyzeWithAi ? "1. Upload" : "1. Save locally"}
-          body={
-            analyzeWithAi
-              ? "The app uploads the picked file directly to your configured AI API."
-              : "The app stores document metadata and any readable local text on this device."
-          }
-        />
-        <PipelineRow
-          title={analyzeWithAi ? "2. Extract" : "2. Read"}
-          body={
-            analyzeWithAi
-              ? "Kimi file-extract returns readable text and detected visual descriptions."
-              : "Markdown and TXT can be read directly from the original text."
-          }
-        />
-        <PipelineRow
-          title={analyzeWithAi ? "3. Summarize" : "3. Analyze later"}
-          body={
-            analyzeWithAi
-              ? "The app stores chunks, summary, visual notes, and chat history locally."
-              : "Re-import with AI analysis enabled when you want summaries and document Q&A."
-          }
-          last
-        />
-      </Card>
-
-      <View style={styles.footer}>
-        <Button onPress={pickDocument} loading={busy}>
-          Choose File
-        </Button>
-      </View>
     </Screen>
   );
 }
 
-function FolderOption({
-  folder,
-  name,
+function FolderDropdown({
+  folders,
+  selectedFolderId,
+  open,
+  onToggle,
+  onSelect,
+}: {
+  folders: FolderRecord[];
+  selectedFolderId: string | null;
+  open: boolean;
+  onToggle: () => void;
+  onSelect: (folderId: string | null) => void;
+}) {
+  const selectedFolder = selectedFolderId
+    ? folders.find((folder) => folder.id === selectedFolderId)
+    : null;
+  const selectedLabel = selectedFolder?.name ?? "No Folder";
+  const selectedMeta = selectedFolder
+    ? `${selectedFolder.documentCount} ${selectedFolder.documentCount === 1 ? "document" : "documents"}`
+    : "Keep this document in the main library.";
+
+  return (
+    <View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        onPress={onToggle}
+        style={({ pressed }) => [styles.folderSelect, pressed && styles.pressed]}
+      >
+        <View style={styles.folderOptionIcon}>
+          <Folder size={19} color={colors.folder} />
+        </View>
+        <View style={styles.folderOptionCopy}>
+          <Text style={styles.folderOptionTitle}>{selectedLabel}</Text>
+          <Text style={styles.folderOptionBody}>{selectedMeta}</Text>
+        </View>
+        {open ? (
+          <ChevronUp size={20} color={colors.textMuted} />
+        ) : (
+          <ChevronDown size={20} color={colors.textMuted} />
+        )}
+      </Pressable>
+
+      {open ? (
+        <View style={styles.folderMenu}>
+          <FolderMenuItem
+            label="No Folder"
+            body="Keep this document in the main library."
+            selected={!selectedFolderId}
+            onPress={() => onSelect(null)}
+          />
+          {folders.map((folder) => (
+            <FolderMenuItem
+              key={folder.id}
+              label={folder.name}
+              body={`${folder.documentCount} ${folder.documentCount === 1 ? "document" : "documents"}`}
+              selected={selectedFolderId === folder.id}
+              onPress={() => onSelect(folder.id)}
+            />
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function FolderMenuItem({
+  label,
   body,
   selected,
   onPress,
 }: {
-  folder?: FolderRecord;
-  name?: string;
-  body?: string;
+  label: string;
+  body: string;
   selected: boolean;
   onPress: () => void;
 }) {
-  const label = folder?.name ?? name ?? "Folder";
-  const sub = folder
-    ? `${folder.documentCount} ${folder.documentCount === 1 ? "document" : "documents"}`
-    : body;
-
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected }}
       onPress={onPress}
-      style={({ pressed }) => [styles.folderOption, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.folderMenuItem, pressed && styles.pressed]}
     >
-      <View style={styles.folderOptionIcon}>
-        <Folder size={19} color={colors.folder} />
+      <View style={styles.folderMenuCopy}>
+        <Text style={styles.folderMenuTitle}>{label}</Text>
+        <Text style={styles.folderMenuBody}>{body}</Text>
       </View>
-      <View style={styles.folderOptionCopy}>
-        <Text style={styles.folderOptionTitle}>{label}</Text>
-        {sub ? <Text style={styles.folderOptionBody}>{sub}</Text> : null}
-      </View>
-      {selected ? <Check size={20} color={colors.text} /> : null}
+      {selected ? <Check size={19} color={colors.text} /> : null}
     </Pressable>
   );
 }
@@ -262,20 +270,6 @@ function AnalysisToggle({
   );
 }
 
-function PipelineRow({ title, body, last }: { title: string; body: string; last?: boolean }) {
-  return (
-    <View style={[styles.pipelineRow, last && styles.lastPipelineRow]}>
-      <View style={styles.pipelineIcon}>
-        <FileText size={18} color={colors.textMuted} />
-      </View>
-      <View style={styles.pipelineBody}>
-        <Text style={styles.pipelineTitle}>{title}</Text>
-        <Text style={styles.pipelineText}>{body}</Text>
-      </View>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   analysisRow: {
     minHeight: 86,
@@ -298,14 +292,12 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginTop: spacing.xs,
   },
-  folderOption: {
-    minHeight: 64,
+  folderSelect: {
+    minHeight: 68,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.md,
     paddingHorizontal: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
   },
   folderOptionIcon: {
     width: 34,
@@ -329,11 +321,40 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
+  folderMenu: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    backgroundColor: colors.surfaceAlt,
+  },
+  folderMenuItem: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  folderMenuCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  folderMenuTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  folderMenuBody: {
+    color: colors.textMuted,
+    fontSize: 13,
+    marginTop: 2,
+  },
   pressed: {
     opacity: 0.64,
   },
   dropZone: {
     minHeight: 172,
+    marginTop: spacing.lg,
     borderRadius: radius.md,
     borderWidth: 1,
     borderStyle: "dashed",
@@ -371,61 +392,5 @@ const styles = StyleSheet.create({
     color: colors.danger,
     marginTop: spacing.md,
     lineHeight: 20,
-  },
-  formatGrid: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  formatItem: {
-    width: "23%",
-    minHeight: 82,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.sm,
-  },
-  formatLabel: {
-    fontSize: 13,
-    color: colors.textMuted,
-    fontWeight: "700",
-  },
-  pipelineRow: {
-    minHeight: 78,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-    gap: spacing.md,
-  },
-  lastPipelineRow: {
-    borderBottomWidth: 0,
-  },
-  pipelineIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: radius.sm,
-    backgroundColor: colors.surfaceMuted,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  pipelineBody: {
-    flex: 1,
-  },
-  pipelineTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: colors.text,
-  },
-  pipelineText: {
-    color: colors.textMuted,
-    lineHeight: 20,
-    marginTop: 2,
-  },
-  footer: {
-    marginTop: spacing.xl,
   },
 });

@@ -1,7 +1,7 @@
 import { router } from "expo-router";
-import { Folder, FolderPlus, Plus } from "lucide-react-native";
+import { Folder, Plus, Trash2 } from "lucide-react-native";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import {
   Button,
   Card,
@@ -18,7 +18,7 @@ import type { FolderRecord } from "@/lib/types";
 import { getErrorMessage } from "@/lib/utils/errors";
 
 export default function DocumentLibraryScreen() {
-  const { documents, folders, apiKey, createFolder } = useApp();
+  const { documents, folders, apiKey, createFolder, deleteFolder } = useApp();
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [folderError, setFolderError] = useState<string | null>(null);
@@ -36,6 +36,38 @@ export default function DocumentLibraryScreen() {
     } catch (error) {
       setFolderError(getErrorMessage(error));
     }
+  }
+
+  function closeFolderModal() {
+    setCreatingFolder(false);
+    setFolderName("");
+    setFolderError(null);
+  }
+
+  async function removeFolder(folder: FolderRecord) {
+    const run = async () => {
+      try {
+        await deleteFolder(folder.id);
+      } catch (error) {
+        setFolderError(getErrorMessage(error));
+      }
+    };
+
+    if (Platform.OS === "web") {
+      if (window.confirm(`Delete "${folder.name}"? Documents will stay in your library.`)) {
+        await run();
+      }
+      return;
+    }
+
+    Alert.alert(
+      "Delete folder?",
+      "Documents in this folder will stay in your library.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: run },
+      ],
+    );
   }
 
   return (
@@ -77,44 +109,64 @@ export default function DocumentLibraryScreen() {
         )}
       </Card>
 
-      <SectionTitle>Folders</SectionTitle>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionHeaderTitle}>Folders</Text>
+        <IconButton
+          label="New folder"
+          onPress={() => setCreatingFolder(true)}
+          style={styles.addFolderButton}
+        >
+          <Plus size={18} color={colors.text} />
+        </IconButton>
+      </View>
       <Card>
         {folders.map((folder, index) => (
           <FolderRow
             key={folder.id}
             folder={folder}
             last={index === folders.length - 1}
+            onDelete={() => removeFolder(folder)}
           />
         ))}
       </Card>
 
-      {creatingFolder ? (
-        <Card style={styles.createFolderCard}>
-          <TextInput
-            value={folderName}
-            onChangeText={setFolderName}
-            placeholder="Folder name"
-            placeholderTextColor={colors.textSubtle}
-            autoFocus
-            style={styles.folderInput}
-          />
-          {folderError ? <Text style={styles.folderError}>{folderError}</Text> : null}
-          <View style={styles.createFolderActions}>
-            <Button variant="ghost" onPress={() => setCreatingFolder(false)}>
-              Cancel
-            </Button>
-            <Button onPress={submitFolder}>Create</Button>
-          </View>
-        </Card>
-      ) : (
-        <Button
-          variant="secondary"
-          icon={<FolderPlus size={18} color={colors.text} />}
-          onPress={() => setCreatingFolder(true)}
+      <Modal
+        visible={creatingFolder}
+        transparent
+        animationType="fade"
+        onRequestClose={closeFolderModal}
+      >
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close new folder dialog"
+          style={styles.modalScrim}
+          onPress={closeFolderModal}
         >
-          New Folder
-        </Button>
-      )}
+          <Pressable
+            accessibilityRole="none"
+            onPress={(event) => event.stopPropagation()}
+            style={styles.modalCard}
+          >
+            <Text style={styles.modalTitle}>New Folder</Text>
+            <Text style={styles.modalBody}>Create a folder to organize related documents.</Text>
+            <TextInput
+              value={folderName}
+              onChangeText={setFolderName}
+              placeholder="Folder name"
+              placeholderTextColor={colors.textSubtle}
+              autoFocus
+              style={styles.folderInput}
+            />
+            {folderError ? <Text style={styles.folderError}>{folderError}</Text> : null}
+            <View style={styles.createFolderActions}>
+              <Button variant="ghost" onPress={closeFolderModal}>
+                Cancel
+              </Button>
+              <Button onPress={submitFolder}>Create</Button>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <View style={styles.fabWrap}>
         <IconButton
@@ -132,26 +184,33 @@ export default function DocumentLibraryScreen() {
 function FolderRow({
   folder,
   last,
+  onDelete,
 }: {
   folder: FolderRecord;
   last?: boolean;
+  onDelete: () => void;
 }) {
   return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={() => router.push(`/folder/${folder.id}`)}
-      style={({ pressed }) => [styles.folderRow, last && styles.lastRow, pressed && styles.pressed]}
-    >
-      <View style={styles.folderIcon}>
-        <Folder size={20} color={colors.folder} />
-      </View>
-      <View>
-        <Text style={styles.folderTitle}>{folder.name}</Text>
-        <Text style={styles.folderSub}>
-          {folder.documentCount} {folder.documentCount === 1 ? "document" : "documents"}
-        </Text>
-      </View>
-    </Pressable>
+    <View style={[styles.folderRow, last && styles.lastRow]}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => router.push(`/folder/${folder.id}`)}
+        style={({ pressed }) => [styles.folderMain, pressed && styles.pressed]}
+      >
+        <View style={styles.folderIcon}>
+          <Folder size={20} color={colors.folder} />
+        </View>
+        <View style={styles.folderCopy}>
+          <Text style={styles.folderTitle} numberOfLines={1}>{folder.name}</Text>
+          <Text style={styles.folderSub}>
+            {folder.documentCount} {folder.documentCount === 1 ? "document" : "documents"}
+          </Text>
+        </View>
+      </Pressable>
+      <IconButton label={`Delete ${folder.name}`} onPress={onDelete} style={styles.deleteFolderButton}>
+        <Trash2 size={18} color={colors.danger} />
+      </IconButton>
+    </View>
   );
 }
 
@@ -174,14 +233,45 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginTop: spacing.xs,
   },
+  sectionHeader: {
+    minHeight: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: spacing.xl,
+    marginBottom: 6,
+  },
+  sectionHeaderTitle: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0,
+  },
+  addFolderButton: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
   folderRow: {
     minHeight: 68,
-    paddingHorizontal: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  folderMain: {
+    flex: 1,
+    minHeight: 68,
+    minWidth: 0,
+    paddingLeft: spacing.md,
+    paddingRight: spacing.sm,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
   },
   lastRow: {
     borderBottomWidth: 0,
@@ -196,6 +286,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  folderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
   folderTitle: {
     color: colors.text,
     fontSize: 16,
@@ -206,9 +300,36 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 3,
   },
-  createFolderCard: {
-    padding: spacing.md,
+  deleteFolderButton: {
+    marginRight: spacing.md,
+  },
+  modalScrim: {
+    flex: 1,
+    backgroundColor: "#1D1D1B66",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: layout.screenMargin,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    padding: spacing.lg,
     gap: spacing.md,
+  },
+  modalTitle: {
+    color: colors.text,
+    fontSize: 21,
+    lineHeight: 28,
+    fontWeight: "500",
+  },
+  modalBody: {
+    color: colors.textMuted,
+    lineHeight: 20,
+    marginTop: -spacing.xs,
   },
   folderInput: {
     minHeight: 48,

@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { Search, X } from "lucide-react-native";
+import { FileText, MessageCircle, Search, TextSearch, X } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -92,21 +92,11 @@ export default function SearchScreen() {
             filtered.length > 0 ? (
               <Card>
                 {filtered.map((result, index) => (
-                  <Pressable
+                  <SearchResultRow
                     key={result.id}
-                    accessibilityRole="button"
-                    onPress={() => router.push(`/document/${result.documentId}`)}
-                    style={[
-                      styles.result,
-                      index === filtered.length - 1 && styles.lastResult,
-                    ]}
-                  >
-                    <Text style={styles.resultTitle}>{result.title}</Text>
-                    <Text style={styles.resultBody} numberOfLines={3}>
-                      {result.excerpt}
-                    </Text>
-                    <Text style={styles.resultMeta}>{result.meta}</Text>
-                  </Pressable>
+                    result={result}
+                    last={index === filtered.length - 1}
+                  />
                 ))}
               </Card>
             ) : (
@@ -123,6 +113,59 @@ export default function SearchScreen() {
           )}
         </ScrollView>
     </Screen>
+  );
+}
+
+function SearchResultRow({ result, last }: { result: SearchResult; last?: boolean }) {
+  const chat = result.type === "chat";
+  const chunk = result.type === "chunk";
+  const icon = chat ? (
+    <MessageCircle size={18} color={colors.primary} />
+  ) : chunk ? (
+    <TextSearch size={18} color={colors.textMuted} />
+  ) : (
+    <FileText size={18} color={colors.text} />
+  );
+  const label = chat ? "Chat" : chunk ? "Chunk" : "Document";
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={() => {
+        if (chat) {
+          router.push({
+            pathname: `/document/${result.documentId}/chat`,
+            params: result.sessionId ? { sessionId: result.sessionId } : undefined,
+          });
+          return;
+        }
+        router.push(`/document/${result.documentId}`);
+      }}
+      style={({ pressed }) => [
+        styles.result,
+        chat && styles.chatResult,
+        last && styles.lastResult,
+        pressed && styles.pressed,
+      ]}
+    >
+      <View style={[styles.resultIcon, chat && styles.chatIcon]}>
+        {icon}
+      </View>
+      <View style={styles.resultCopy}>
+        <View style={styles.resultHeader}>
+          <Text style={[styles.resultKind, chat && styles.chatKind]}>{label}</Text>
+          <Text style={styles.resultMeta} numberOfLines={1}>
+            {result.meta}
+          </Text>
+        </View>
+        <Text style={styles.resultTitle} numberOfLines={1}>
+          {result.title}
+        </Text>
+        <Text style={[styles.resultBody, chat && styles.chatBody]} numberOfLines={chat ? 4 : 3}>
+          {result.excerpt}
+        </Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -187,12 +230,51 @@ const styles = StyleSheet.create({
     paddingBottom: 34,
   },
   result: {
+    flexDirection: "row",
+    gap: spacing.md,
     padding: spacing.lg,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
   },
+  chatResult: {
+    backgroundColor: "#F8F6F1",
+  },
   lastResult: {
     borderBottomWidth: 0,
+  },
+  pressed: {
+    opacity: 0.64,
+  },
+  resultIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceMuted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chatIcon: {
+    backgroundColor: colors.primarySoft,
+  },
+  resultCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  resultHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  resultKind: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  chatKind: {
+    color: colors.primary,
   },
   resultTitle: {
     color: colors.text,
@@ -204,10 +286,13 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     marginTop: spacing.sm,
   },
+  chatBody: {
+    color: colors.text,
+  },
   resultMeta: {
     color: colors.textSubtle,
-    marginTop: spacing.sm,
     fontSize: 12,
     fontWeight: "700",
+    flexShrink: 1,
   },
 });

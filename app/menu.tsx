@@ -24,14 +24,14 @@ export default function MenuScreen() {
 
       <View style={styles.menuList}>
         <MenuItem icon={<FileText size={22} color={colors.primaryDark} />} label="Documents" onPress={() => router.replace("/")} active />
-        <MenuItem icon={<Bot size={22} color={colors.primaryDark} />} label="AI Conversations" onPress={() => router.replace("/search")} />
+        <MenuItem icon={<Bot size={22} color={colors.primaryDark} />} label="AI Conversations" onPress={() => router.replace("/conversations")} />
         <MenuItem icon={<Plus size={22} color={colors.primaryDark} />} label="Import Document" onPress={() => router.replace("/import")} />
+        <MenuItem icon={<Trash2 size={22} color={colors.primaryDark} />} label="Trash" onPress={() => router.replace("/trash")} />
         <MenuItem icon={<Settings size={22} color={colors.primaryDark} />} label="Settings" onPress={() => router.replace("/settings")} />
       </View>
 
       <View style={styles.menuList}>
-        <MenuItem icon={<HelpCircle size={22} color={colors.textMuted} />} label="Help" onPress={() => undefined} />
-        <MenuItem icon={<Trash2 size={22} color={colors.textMuted} />} label="Trash" onPress={() => undefined} />
+        <MenuItem icon={<HelpCircle size={22} color={colors.textMuted} />} label="Help" onPress={() => router.replace("/help")} />
       </View>
 
       <View style={styles.storage}>

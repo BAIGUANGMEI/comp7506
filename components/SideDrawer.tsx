@@ -12,22 +12,28 @@ import {
   Animated,
   Image,
   Pressable,
-  SafeAreaView,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { DimensionValue } from "react-native";
+import { MAX_IMPORT_BYTES } from "@/config/defaults";
 import { colors, layout, radius, spacing } from "@/config/theme";
 import { useApp } from "@/lib/AppProvider";
+import { authProviderLabel } from "@/lib/auth/account";
 
 export function SideDrawer() {
   const pathname = usePathname();
+  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const { drawerOpen, closeDrawer, documents, profile } = useApp();
+  const { authAccount, drawerOpen, closeDrawer, documents, profile } = useApp();
   const progress = useRef(new Animated.Value(0)).current;
-  const readyCount = documents.filter((document) => document.status === "ready").length;
+  const totalBytes = useMemo(
+    () => documents.reduce((sum, document) => sum + (document.fileSizeBytes ?? 0), 0),
+    [documents],
+  );
   const drawerWidth = Math.min(360, Math.max(320, width * 0.9));
 
   useEffect(() => {
@@ -52,10 +58,11 @@ export function SideDrawer() {
     if (documents.length === 0) {
       return "0%";
     }
-    return `${Math.round((readyCount / documents.length) * 100)}%`;
-  }, [documents.length, readyCount]);
+    const storageBasis = documents.length * MAX_IMPORT_BYTES;
+    return `${Math.min(100, Math.round((totalBytes / storageBasis) * 100))}%`;
+  }, [documents.length, totalBytes]);
 
-  function navigateTo(path: "/" | "/search" | "/import" | "/settings") {
+  function navigateTo(path: "/" | "/conversations" | "/search" | "/import" | "/settings" | "/trash" | "/help") {
     closeDrawer();
     if (pathname === path) {
       return;
@@ -78,8 +85,16 @@ export function SideDrawer() {
       </Animated.View>
 
       <Animated.View style={[styles.drawer, { width: drawerWidth, transform: [{ translateX }] }]}>
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.drawerContent}>
+        <View style={styles.safeArea}>
+          <View
+            style={[
+              styles.drawerContent,
+              {
+                paddingTop: Math.max(insets.top + 22, 46),
+                paddingBottom: Math.max(insets.bottom + spacing.md, 26),
+              },
+            ]}
+          >
             <View style={styles.profile}>
               <View style={styles.avatar}>
                 {profile.avatarDataUri ? (
@@ -92,7 +107,9 @@ export function SideDrawer() {
                 <Text style={styles.profileName} numberOfLines={1}>
                   Hello, {profile.displayName}
                 </Text>
-                <Text style={styles.profilePlan}>Personal</Text>
+                <Text style={styles.profilePlan} numberOfLines={1}>
+                  {authAccount ? `Signed in with ${authProviderLabel(authAccount.provider)}` : "Personal"}
+                </Text>
               </View>
             </View>
 
@@ -106,8 +123,8 @@ export function SideDrawer() {
               <MenuItem
                 icon={<Bot size={24} color={colors.text} />}
                 label="AI Conversations"
-                onPress={() => navigateTo("/search")}
-                active={pathname === "/search"}
+                onPress={() => navigateTo("/conversations")}
+                active={pathname === "/conversations"}
               />
               <MenuItem
                 icon={<Plus size={25} color={colors.text} />}
@@ -116,15 +133,16 @@ export function SideDrawer() {
                 active={pathname === "/import"}
               />
               <MenuItem
+                icon={<Trash2 size={23} color={colors.text} />}
+                label="Trash"
+                onPress={() => navigateTo("/trash")}
+                active={pathname === "/trash"}
+              />
+              <MenuItem
                 icon={<Settings size={23} color={colors.text} />}
                 label="Settings"
                 onPress={() => navigateTo("/settings")}
                 active={pathname === "/settings"}
-              />
-              <MenuItem
-                icon={<Trash2 size={23} color={colors.textSubtle} />}
-                label="Trash"
-                onPress={closeDrawer}
               />
             </View>
 
@@ -134,24 +152,43 @@ export function SideDrawer() {
               <MenuItem
                 icon={<HelpCircle size={23} color={colors.text} />}
                 label="Help"
-                onPress={closeDrawer}
+                onPress={() => navigateTo("/help")}
+                active={pathname === "/help"}
               />
             </View>
 
             <View style={styles.storage}>
               <View style={styles.storageHeader}>
                 <Text style={styles.storageLine}>Storage</Text>
-                <Text style={styles.storageAmount}>{readyCount}/{documents.length || 0} docs</Text>
+                <Text style={styles.storageAmount}>{formatBytes(totalBytes)}</Text>
               </View>
+              <Text style={styles.storageMeta}>
+                {documents.length} {documents.length === 1 ? "document" : "documents"}
+              </Text>
               <View style={styles.track}>
                 <View style={[styles.fill, { width: storageWidth }]} />
               </View>
             </View>
           </View>
-        </SafeAreaView>
+        </View>
       </Animated.View>
     </View>
   );
+}
+
+function formatBytes(bytes: number) {
+  if (bytes <= 0) {
+    return "0 KB";
+  }
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const precision = value >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(precision)} ${units[unitIndex]}`;
 }
 
 function MenuItem({
@@ -199,8 +236,6 @@ const styles = StyleSheet.create({
   drawerContent: {
     flex: 1,
     paddingHorizontal: layout.screenMargin + spacing.lg,
-    paddingTop: 52,
-    paddingBottom: 26,
   },
   profile: {
     flexDirection: "row",
@@ -298,6 +333,11 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 16,
     fontWeight: "600",
+  },
+  storageMeta: {
+    color: colors.textMuted,
+    fontSize: 13,
+    marginTop: 4,
   },
   track: {
     height: 7,
