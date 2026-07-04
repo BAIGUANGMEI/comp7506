@@ -1,27 +1,59 @@
+import * as AppleAuthentication from "expo-apple-authentication";
+import * as Application from "expo-application";
+import * as AuthSession from "expo-auth-session";
+import { discovery as googleDiscovery } from "expo-auth-session/providers/google";
 import * as ImagePicker from "expo-image-picker";
+import * as WebBrowser from "expo-web-browser";
 import { useLocalSearchParams } from "expo-router";
 import { Image, Platform, StyleSheet, Switch, Text, TextInput, View } from "react-native";
-import { useState } from "react";
-import { Image as ImageIcon } from "lucide-react-native";
+import { useEffect, useState } from "react";
+import { BadgeCheck, Image as ImageIcon, LogIn, LogOut } from "lucide-react-native";
 import { Button, Card, Screen, SectionTitle, TopBar } from "@/components/ui";
 import { colors, radius, spacing } from "@/config/theme";
 import { useApp } from "@/lib/AppProvider";
+import {
+  authProviderLabel,
+  buildAppleDisplayName,
+  fetchGoogleAccount,
+} from "@/lib/auth/account";
 import { imageAssetToDataUri } from "@/lib/user/avatar";
+import type { AuthAccount, AuthConfig } from "@/lib/types";
 import { getErrorMessage } from "@/lib/utils/errors";
+
+WebBrowser.maybeCompleteAuthSession();
 
 export default function SettingsScreen() {
   const { entry } = useLocalSearchParams<{ entry?: string }>();
   const stackEntry = entry === "stack";
-  const { config, profile, apiKey, saveConfig, saveProfile, testConnection } = useApp();
+  const {
+    authAccount,
+    authConfig,
+    config,
+    profile,
+    apiKey,
+    saveAuthAccount,
+    saveConfig,
+    saveProfile,
+    signOutAuth,
+    testConnection,
+  } = useApp();
   const [displayName, setDisplayName] = useState(profile.displayName);
   const [avatarDataUri, setAvatarDataUri] = useState(profile.avatarDataUri ?? null);
   const [baseUrl, setBaseUrl] = useState(config.baseUrl);
   const [model, setModel] = useState(config.model);
   const [key, setKey] = useState(apiKey);
   const [deleteRemote, setDeleteRemote] = useState(config.deleteRemoteFilesAfterExtraction);
+  const [appleAvailable, setAppleAvailable] = useState(false);
+  const [signingIn, setSigningIn] = useState<AuthAccount["provider"] | null>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    AppleAuthentication.isAvailableAsync()
+      .then(setAppleAvailable)
+      .catch(() => setAppleAvailable(false));
+  }, []);
 
   async function pickAvatar() {
     setMessage(null);
@@ -86,6 +118,131 @@ export default function SettingsScreen() {
     }
   }
 
+  async function applySignedInAccount(account: AuthAccount) {
+    await saveAuthAccount(account);
+    const nextDisplayName = account.displayName?.trim() || displayName;
+    const nextAvatar = account.avatarUrl ?? avatarDataUri;
+    setDisplayName(nextDisplayName);
+    setAvatarDataUri(nextAvatar);
+    await saveProfile({
+      displayName: nextDisplayName,
+      avatarDataUri: nextAvatar,
+    });
+  }
+
+  async function useAccountAvatar() {
+    if (!authAccount?.avatarUrl) {
+      setMessage("This account does not provide an avatar.");
+      return;
+    }
+
+    setMessage(null);
+    try {
+      setAvatarDataUri(authAccount.avatarUrl);
+      await saveProfile({
+        displayName,
+        avatarDataUri: authAccount.avatarUrl,
+      });
+      setMessage("Profile avatar updated from your account.");
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    }
+  }
+
+  async function signInWithGoogle() {
+    const clientId = googleClientIdForPlatform(authConfig);
+    if (!clientId) {
+      setMessage("Google sign-in is not configured for this platform yet.");
+      return;
+    }
+    setSigningIn("google");
+    setMessage(null);
+    try {
+      const redirectUri = googleRedirectUri();
+      const responseType =
+        Platform.OS === "web" ? AuthSession.ResponseType.Token : AuthSession.ResponseType.Code;
+      const request = new AuthSession.AuthRequest({
+        clientId,
+        redirectUri,
+        responseType,
+        scopes: ["openid", "profile", "email"],
+        prompt: AuthSession.Prompt.SelectAccount,
+        usePKCE: Platform.OS !== "web",
+      });
+      const response = await request.promptAsync(googleDiscovery);
+      if (response.type === "cancel" || response.type === "dismiss") {
+        return;
+      }
+      if (response.type !== "success") {
+        throw new Error("Google sign-in was not completed.");
+      }
+      const accessToken =
+        response.authentication?.accessToken ??
+        (response.params.code
+          ? await exchangeGoogleCodeForAccessToken({
+              clientId,
+              code: response.params.code,
+              codeVerifier: request.codeVerifier,
+              redirectUri,
+            })
+          : null);
+      if (!accessToken) {
+        throw new Error("Google sign-in did not return an access token.");
+      }
+      const account = await fetchGoogleAccount(accessToken);
+      await applySignedInAccount(account);
+      setMessage("Signed in with Google.");
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setSigningIn(null);
+    }
+  }
+
+  async function signInWithApple() {
+    if (!appleAvailable) {
+      setMessage("Apple sign-in is available on supported iOS devices.");
+      return;
+    }
+
+    setSigningIn("apple");
+    setMessage(null);
+    try {
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+      const account: AuthAccount = {
+        provider: "apple",
+        subject: credential.user,
+        email: credential.email ?? authAccount?.email ?? null,
+        displayName: buildAppleDisplayName(credential.fullName) ?? authAccount?.displayName ?? null,
+        signedInAt: new Date().toISOString(),
+      };
+      await applySignedInAccount(account);
+      setMessage("Signed in with Apple.");
+    } catch (error) {
+      if (isCanceledAuth(error)) {
+        return;
+      }
+      setMessage(getErrorMessage(error));
+    } finally {
+      setSigningIn(null);
+    }
+  }
+
+  async function disconnectAccount() {
+    setMessage(null);
+    try {
+      await signOutAuth();
+      setMessage("Signed out.");
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    }
+  }
+
   async function runTest() {
     setTesting(true);
     setMessage(null);
@@ -136,6 +293,16 @@ export default function SettingsScreen() {
               >
                 Avatar
               </Button>
+              {authAccount?.avatarUrl ? (
+                <Button
+                  variant="ghost"
+                  onPress={useAccountAvatar}
+                  style={styles.avatarButton}
+                  icon={<BadgeCheck size={17} color={colors.text} />}
+                >
+                  Use Account
+                </Button>
+              ) : null}
               <Button
                 variant="ghost"
                 onPress={() => setAvatarDataUri(null)}
@@ -147,6 +314,52 @@ export default function SettingsScreen() {
             </View>
           </View>
         </View>
+
+        <View style={styles.accountHeader}>
+          <View style={styles.accountIcon}>
+            <BadgeCheck size={22} color={authAccount ? colors.success : colors.textMuted} />
+          </View>
+          <View style={styles.accountCopy}>
+            <Text style={styles.accountTitle}>
+              {authAccount ? `Signed in with ${authProviderLabel(authAccount.provider)}` : "Not signed in"}
+            </Text>
+            <Text style={styles.accountMeta} numberOfLines={1}>
+              {authAccount?.email ?? authAccount?.displayName ?? "Use Apple or Google to identify this workspace."}
+            </Text>
+          </View>
+        </View>
+
+        {authAccount ? (
+          <Button
+            variant="ghost"
+            onPress={disconnectAccount}
+            icon={<LogOut size={17} color={colors.text} />}
+            style={styles.signOutButton}
+          >
+            Sign Out
+          </Button>
+        ) : (
+          <View style={styles.signInActions}>
+            {appleAvailable ? (
+              <AppleAuthentication.AppleAuthenticationButton
+                buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                cornerRadius={8}
+                onPress={signInWithApple}
+                style={styles.appleButton}
+              />
+            ) : null}
+            <Button
+              variant="secondary"
+              onPress={signInWithGoogle}
+              loading={signingIn === "google"}
+              icon={<LogIn size={17} color={colors.text} />}
+              style={styles.signInButton}
+            >
+              Continue with Google
+            </Button>
+          </View>
+        )}
       </Card>
 
       <SectionTitle>AI Provider</SectionTitle>
@@ -254,6 +467,60 @@ function Toggle({
   );
 }
 
+function googleClientIdForPlatform(config: AuthConfig) {
+  if (Platform.OS === "ios") {
+    return config.googleIosClientId;
+  }
+  if (Platform.OS === "android") {
+    return config.googleAndroidClientId;
+  }
+  return config.googleWebClientId;
+}
+
+function googleRedirectUri() {
+  if (Platform.OS === "web") {
+    return AuthSession.makeRedirectUri({ scheme: "documentai" });
+  }
+
+  const nativeScheme = Application.applicationId
+    ? `${Application.applicationId}:/oauthredirect`
+    : "documentai:/oauthredirect";
+  return AuthSession.makeRedirectUri({
+    native: nativeScheme,
+    scheme: "documentai",
+  });
+}
+
+async function exchangeGoogleCodeForAccessToken({
+  clientId,
+  code,
+  codeVerifier,
+  redirectUri,
+}: {
+  clientId: string;
+  code: string;
+  codeVerifier?: string;
+  redirectUri: string;
+}) {
+  const token = await new AuthSession.AccessTokenRequest({
+    clientId,
+    code,
+    redirectUri,
+    scopes: ["openid", "profile", "email"],
+    extraParams: codeVerifier ? { code_verifier: codeVerifier } : undefined,
+  }).performAsync(googleDiscovery);
+  return token.accessToken;
+}
+
+function isCanceledAuth(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "ERR_REQUEST_CANCELED"
+  );
+}
+
 const styles = StyleSheet.create({
   webNotice: {
     backgroundColor: colors.surface,
@@ -275,8 +542,51 @@ const styles = StyleSheet.create({
   form: {
     paddingVertical: spacing.sm,
   },
+  accountHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    paddingTop: spacing.md,
+  },
+  accountIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceMuted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  accountCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  accountTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  accountMeta: {
+    color: colors.textMuted,
+    marginTop: 3,
+  },
+  signInActions: {
+    gap: spacing.sm,
+  },
+  appleButton: {
+    width: "100%",
+    height: 46,
+  },
+  signInButton: {
+    minHeight: 46,
+  },
+  signOutButton: {
+    minHeight: 42,
+  },
   profileCard: {
     padding: spacing.md,
+    gap: spacing.md,
   },
   profileRow: {
     flexDirection: "row",
@@ -307,12 +617,14 @@ const styles = StyleSheet.create({
   },
   avatarActions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.sm,
   },
   avatarButton: {
     flex: 1,
+    minWidth: 104,
     minHeight: 42,
   },
   field: {

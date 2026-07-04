@@ -10,7 +10,9 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "usesAppleSignIn": true,
+      "bundleIdentifier": "com.baiguangmei.documentai"
     },
     "android": {
       "adaptiveIcon": {
@@ -36,7 +38,9 @@
         {
           "enableFTS": true
         }
-      ]
+      ],
+      "expo-apple-authentication",
+      "expo-web-browser"
     ]
   }
 }
