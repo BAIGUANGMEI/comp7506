@@ -1,9 +1,8 @@
 import type { SQLiteDatabase } from "expo-sqlite";
-import { DEFAULT_AGENT_CONFIG, DEFAULT_AUTH_CONFIG, DEFAULT_PROVIDER_CONFIG, DEFAULT_USER_PROFILE } from "@/config/defaults";
+import { DEFAULT_AGENT_CONFIG, DEFAULT_PROVIDER_CONFIG, DEFAULT_USER_PROFILE } from "@/config/defaults";
 import type {
   AgentConfig,
   AuthAccount,
-  AuthConfig,
   ChatMessage,
   ChatSession,
   DocumentChunk,
@@ -125,31 +124,20 @@ export async function saveAgentConfig(db: SQLiteDatabase, config: AgentConfig) {
   );
 }
 
-export async function getAuthConfig(db: SQLiteDatabase) {
-  const row = await db.getFirstAsync<{ value: string }>(
-    "SELECT value FROM settings WHERE key = ?",
-    ["authConfig"],
-  );
-  if (!row?.value) {
-    return DEFAULT_AUTH_CONFIG;
-  }
-  return mergeAuthConfigWithEnv(JSON.parse(row.value) as Partial<AuthConfig>);
-}
-
-export async function saveAuthConfig(db: SQLiteDatabase, config: AuthConfig) {
-  await db.runAsync(
-    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-    "authConfig",
-    JSON.stringify(config),
-  );
-}
-
 export async function getAuthAccount(db: SQLiteDatabase) {
   const row = await db.getFirstAsync<{ value: string }>(
     "SELECT value FROM settings WHERE key = ?",
     ["authAccount"],
   );
-  return row?.value ? (JSON.parse(row.value) as AuthAccount) : null;
+  if (!row?.value) {
+    return null;
+  }
+  const account = JSON.parse(row.value) as AuthAccount & { provider?: string };
+  if (account.provider !== "apple") {
+    await clearAuthAccount(db);
+    return null;
+  }
+  return account;
 }
 
 export async function saveAuthAccount(db: SQLiteDatabase, account: AuthAccount) {
@@ -162,15 +150,6 @@ export async function saveAuthAccount(db: SQLiteDatabase, account: AuthAccount) 
 
 export async function clearAuthAccount(db: SQLiteDatabase) {
   await db.runAsync("DELETE FROM settings WHERE key = ?", "authAccount");
-}
-
-function mergeAuthConfigWithEnv(stored: Partial<AuthConfig>): AuthConfig {
-  const merged = { ...DEFAULT_AUTH_CONFIG, ...stored };
-  return {
-    googleWebClientId: DEFAULT_AUTH_CONFIG.googleWebClientId || merged.googleWebClientId || "",
-    googleIosClientId: DEFAULT_AUTH_CONFIG.googleIosClientId || merged.googleIosClientId || "",
-    googleAndroidClientId: DEFAULT_AUTH_CONFIG.googleAndroidClientId || merged.googleAndroidClientId || "",
-  };
 }
 
 export async function getDocuments(db: SQLiteDatabase) {

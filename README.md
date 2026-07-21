@@ -1,6 +1,6 @@
 # Document AI Expo App
 
-Document AI is an Expo SDK 56 app for importing TXT, Markdown, PDF, DOC, and DOCX files, extracting their text with a Kimi-compatible API, summarizing them, and chatting with AI using document chunks as context.
+Document AI is an Expo SDK 54 app for importing TXT, Markdown, PDF, DOC, and DOCX files, extracting their text with a Kimi-compatible API, summarizing them, and chatting with AI using document chunks as context.
 
 ## Requirements
 
@@ -13,16 +13,6 @@ Document AI is an Expo SDK 56 app for importing TXT, Markdown, PDF, DOC, and DOC
 npm install
 npm run web
 ```
-
-Google sign-in client IDs are loaded from `.env` with Expo public variables:
-
-```bash
-EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=your-ios-client-id.apps.googleusercontent.com
-EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=
-EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=
-```
-
-Restart the Expo dev server after changing `.env`.
 
 For native targets:
 

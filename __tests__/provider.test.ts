@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDocumentChatSystemPrompt } from "@/lib/ai/prompts";
 import { buildRuntimeConfig, normalizeProviderBaseUrl } from "@/lib/ai/provider";
-import { authProviderLabel, buildAppleDisplayName } from "@/lib/auth/account";
+import { buildAppleDisplayName } from "@/lib/auth/account";
 import { DEFAULT_PROVIDER_CONFIG } from "@/config/defaults";
 
 describe("provider runtime config", () => {
@@ -30,9 +30,7 @@ describe("provider runtime config", () => {
     expect(prompt).toContain("document-grounding rules");
   });
 
-  it("formats auth account labels and Apple names", () => {
-    expect(authProviderLabel("google")).toBe("Google");
-    expect(authProviderLabel("apple")).toBe("Apple");
+  it("formats Apple names", () => {
     expect(
       buildAppleDisplayName({
         givenName: "Ada",

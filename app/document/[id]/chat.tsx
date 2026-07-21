@@ -51,6 +51,7 @@ export default function ChatScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const mountedRef = useRef(true);
   const hadActiveChatRef = useRef(false);
+  const creatingSessionRef = useRef(false);
   const activeChat = session ? activeChats[session.id] : undefined;
   const activeStatus = activeChat?.status;
   const activePartial = activeChat?.partial ?? "";
@@ -170,9 +171,15 @@ export default function ChatScreen() {
   }
 
   async function startNewSession() {
-    if (!id) {
+    if (!id || !session || creatingSessionRef.current) {
       return;
     }
+    if (messages.length === 0) {
+      showEmptySessionNotice();
+      return;
+    }
+
+    creatingSessionRef.current = true;
     setError(null);
     try {
       const nextSession = await createChatSession(id);
@@ -183,6 +190,8 @@ export default function ChatScreen() {
       router.setParams({ sessionId: nextSession.id });
     } catch (nextError) {
       setError(getErrorMessage(nextError));
+    } finally {
+      creatingSessionRef.current = false;
     }
   }
 
@@ -628,6 +637,15 @@ function downloadTextFile(filename: string, text: string) {
   anchor.click();
   anchor.remove();
   globalThis.URL.revokeObjectURL(url);
+}
+
+function showEmptySessionNotice() {
+  const message = "Send a message in this conversation before starting another one.";
+  if (Platform.OS === "web") {
+    window.alert(message);
+    return;
+  }
+  Alert.alert("New conversation already open", message);
 }
 
 const styles = StyleSheet.create({

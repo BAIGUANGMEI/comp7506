@@ -27,21 +27,14 @@ export type AgentConfig = {
   systemPrompt: string;
 };
 
-export type AuthProvider = "apple" | "google";
+export type AuthProvider = "apple";
 
 export type AuthAccount = {
   provider: AuthProvider;
   subject: string;
   email?: string | null;
   displayName?: string | null;
-  avatarUrl?: string | null;
   signedInAt: string;
-};
-
-export type AuthConfig = {
-  googleWebClientId: string;
-  googleIosClientId: string;
-  googleAndroidClientId: string;
 };
 
 export type DocumentRecord = {

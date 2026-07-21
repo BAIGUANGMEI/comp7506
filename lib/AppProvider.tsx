@@ -12,7 +12,7 @@ import React, {
 } from "react";
 import { buildDocumentChatMessages, kimiAdapter } from "@/lib/ai/kimi";
 import { buildRuntimeConfig, normalizeProviderBaseUrl } from "@/lib/ai/provider";
-import { DEFAULT_AGENT_CONFIG, DEFAULT_AUTH_CONFIG } from "@/config/defaults";
+import { DEFAULT_AGENT_CONFIG } from "@/config/defaults";
 import { chunkText, searchChunks, selectRelevantChunks } from "@/lib/documents/chunking";
 import { titleFromFilename, validateImportAsset } from "@/lib/documents/assets";
 import { tryReadOriginalText } from "@/lib/documents/original";
@@ -26,7 +26,6 @@ import {
   deleteFolder as deleteFolderFromDb,
   getAgentConfig,
   getAuthAccount,
-  getAuthConfig,
   getAllChunks,
   getChatMessages,
   getChatMessagesForSession,
@@ -51,7 +50,6 @@ import {
   saveProviderConfig,
   saveAgentConfig as saveAgentConfigToDb,
   saveAuthAccount as saveAuthAccountToDb,
-  saveAuthConfig as saveAuthConfigToDb,
   saveUserProfile as saveUserProfileToDb,
   updateChatSession,
   upsertDocument,
@@ -62,7 +60,6 @@ import type {
   ActiveChat,
   AgentConfig,
   AuthAccount,
-  AuthConfig,
   ChatSession,
   DocumentChunk,
   DocumentRecord,
@@ -93,7 +90,6 @@ type AppContextValue = {
   folders: FolderRecord[];
   config: ProviderConfig;
   agentConfig: AgentConfig;
-  authConfig: AuthConfig;
   authAccount: AuthAccount | null;
   profile: UserProfile;
   apiKey: string;
@@ -104,7 +100,6 @@ type AppContextValue = {
   refresh: () => Promise<void>;
   saveConfig: (next: ProviderConfig, apiKey: string) => Promise<void>;
   saveAgentConfig: (next: AgentConfig) => Promise<void>;
-  saveAuthConfig: (next: AuthConfig) => Promise<void>;
   saveAuthAccount: (next: AuthAccount) => Promise<void>;
   signOutAuth: () => Promise<void>;
   saveProfile: (next: UserProfile) => Promise<void>;
@@ -153,7 +148,6 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [activeChats, setActiveChats] = useState<Record<string, ActiveChat>>({});
   const activeChatTasks = useRef<Partial<Record<string, Promise<ChatMessage>>>>({});
   const [agentConfig, setAgentConfigState] = useState<AgentConfig>(DEFAULT_AGENT_CONFIG);
-  const [authConfig, setAuthConfigState] = useState<AuthConfig>(DEFAULT_AUTH_CONFIG);
   const [authAccount, setAuthAccount] = useState<AuthAccount | null>(null);
   const [config, setConfigState] = useState<ProviderConfig>({
     baseUrl: "https://api.moonshot.cn/v1",
@@ -171,7 +165,6 @@ export function AppProvider({ children }: PropsWithChildren) {
       const storedConfig = await getProviderConfig(nextDb);
       const storedProfile = await getUserProfile(nextDb);
       const storedAgentConfig = await getAgentConfig(nextDb);
-      const storedAuthConfig = await getAuthConfig(nextDb);
       const storedAuthAccount = await getAuthAccount(nextDb);
       const storedKey = (await getSecret(storedConfig.apiKeyRef)) ?? "";
       const storedDocuments = await getDocuments(nextDb);
@@ -182,7 +175,6 @@ export function AppProvider({ children }: PropsWithChildren) {
       setDb(nextDb);
       setConfigState(storedConfig);
       setAgentConfigState(storedAgentConfig);
-      setAuthConfigState(storedAuthConfig);
       setAuthAccount(storedAuthAccount);
       setProfile(storedProfile);
       setApiKey(storedKey);
@@ -258,22 +250,6 @@ export function AppProvider({ children }: PropsWithChildren) {
       };
       await saveAgentConfigToDb(db, normalized);
       setAgentConfigState(normalized);
-    },
-    [db],
-  );
-
-  const saveAuthConfig = useCallback(
-    async (next: AuthConfig) => {
-      if (!db) {
-        return;
-      }
-      const normalized: AuthConfig = {
-        googleWebClientId: next.googleWebClientId.trim(),
-        googleIosClientId: next.googleIosClientId.trim(),
-        googleAndroidClientId: next.googleAndroidClientId.trim(),
-      };
-      await saveAuthConfigToDb(db, normalized);
-      setAuthConfigState(normalized);
     },
     [db],
   );
@@ -816,7 +792,6 @@ export function AppProvider({ children }: PropsWithChildren) {
       folders,
       config,
       agentConfig,
-      authConfig,
       authAccount,
       profile,
       apiKey,
@@ -827,7 +802,6 @@ export function AppProvider({ children }: PropsWithChildren) {
       refresh,
       saveConfig,
       saveAgentConfig,
-      saveAuthConfig,
       saveAuthAccount,
       signOutAuth,
       saveProfile,
@@ -860,7 +834,6 @@ export function AppProvider({ children }: PropsWithChildren) {
       folders,
       config,
       agentConfig,
-      authConfig,
       authAccount,
       profile,
       apiKey,
@@ -871,7 +844,6 @@ export function AppProvider({ children }: PropsWithChildren) {
       refresh,
       saveConfig,
       saveAgentConfig,
-      saveAuthConfig,
       saveAuthAccount,
       signOutAuth,
       saveProfile,

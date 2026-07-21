@@ -22,7 +22,6 @@ import type { DimensionValue } from "react-native";
 import { MAX_IMPORT_BYTES } from "@/config/defaults";
 import { colors, layout, radius, spacing } from "@/config/theme";
 import { useApp } from "@/lib/AppProvider";
-import { authProviderLabel } from "@/lib/auth/account";
 
 export function SideDrawer() {
   const pathname = usePathname();
@@ -108,7 +107,7 @@ export function SideDrawer() {
                   Hello, {profile.displayName}
                 </Text>
                 <Text style={styles.profilePlan} numberOfLines={1}>
-                  {authAccount ? `Signed in with ${authProviderLabel(authAccount.provider)}` : "Personal"}
+                  {authAccount ? "Signed in with Apple" : "Personal"}
                 </Text>
               </View>
             </View>
