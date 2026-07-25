@@ -26,7 +26,17 @@ nvm install 22
 nvm use 22
 ```
 
-### 2. Clone and install
+### 2. Get the source code and install
+
+If you downloaded the source-code ZIP from Moodle, extract it and open a
+terminal in the extracted directory:
+
+```bash
+cd "Document AI Source Code"
+npm ci
+```
+
+Alternatively, clone the GitHub repository:
 
 ```bash
 git clone https://github.com/BAIGUANGMEI/comp7506.git
